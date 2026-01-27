@@ -7811,47 +7811,84 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 									assert(0); // Invalid seat index
 								}
 							}
+							else if(avatar->entered_vehicle.nonNull() && avatar->entered_vehicle->isSeat()) // If we're sitting in a seat object
+							{
+								// Set up a simple sitting pose for seat objects
+								const Matrix4f seat_to_world = obToWorldMatrix(*avatar->entered_vehicle);
+								pose_constraint.sitting = true;
+								pose_constraint.seat_to_world = seat_to_world;
+								// Use default sitting pose angles (no special rotations needed)
+								pose_constraint.model_to_y_forwards_rot_1 = Quatf::identity();
+								pose_constraint.model_to_y_forwards_rot_2 = Quatf::identity();
+								pose_constraint.upper_body_rot_angle = 0.0f;
+								pose_constraint.upper_leg_rot_angle = 1.5f; // Bent legs for sitting
+								pose_constraint.upper_leg_rot_around_thigh_bone_angle = 0.0f;
+								pose_constraint.upper_leg_apart_angle = 0.3f;
+								pose_constraint.lower_leg_rot_angle = 1.5f;
+								pose_constraint.lower_leg_apart_angle = 0.0f;
+								pose_constraint.rotate_foot_out_angle = 0.0f;
+								pose_constraint.arm_down_angle = 0.5f;
+								pose_constraint.arm_out_angle = 0.0f;
+								pose_constraint.upper_arm_shoulder_lift_angle = 0.0f;
+								pose_constraint.lower_arm_up_angle = 0.5f;
+								pose_constraint.left_hand_hold_point_ws = Vec4f(0,0,0,0);
+								pose_constraint.right_hand_hold_point_ws = Vec4f(0,0,0,0);
+							}
 						}
 						else
 						{
 							if(avatar->pending_vehicle_transition == Avatar::EnterVehicle)
 							{
 								assert(avatar->entered_vehicle.nonNull());
-								if(avatar->entered_vehicle.nonNull()) // If the other avatar is, or should be in a vehicle:
+								if(avatar->entered_vehicle.nonNull()) // If the other avatar is, or should be in a vehicle or seat:
 								{
-									// If the physics object, opengl object and script are all loaded:
-									if(avatar->entered_vehicle->physics_object.nonNull() && avatar->entered_vehicle->opengl_engine_ob.nonNull() && avatar->entered_vehicle->vehicle_script.nonNull())
+									if(avatar->entered_vehicle->isSeat())
 									{
-										const auto controller_res = vehicle_controllers.find(avatar->entered_vehicle.ptr());
-										if(controller_res == vehicle_controllers.end()) // if there is no vehicle controller for this object :
-										{
-											// Create Vehicle controller
-											Reference<VehiclePhysics> new_controller = createVehicleControllerForScript(avatar->entered_vehicle.ptr());
-											vehicle_controllers.insert(std::make_pair(avatar->entered_vehicle.ptr(), new_controller));
-
-											new_controller->userEnteredVehicle(avatar->vehicle_seat_index);
-
-											conPrint("Avatar entered vehicle with new physics controller in seat " + toString(avatar->vehicle_seat_index));
-										}
-										else // Else if there is already a vehicle controller for the object:
-										{
-											conPrint("Avatar entered vehicle with existing physics controller in seat " + toString(avatar->vehicle_seat_index));
-
-											VehiclePhysics* controller = controller_res->second.ptr();
-											controller->userEnteredVehicle(avatar->vehicle_seat_index);
-										}
-
+										// For seat objects, just mark the transition as complete (no vehicle controller needed)
+										conPrint("Avatar entered seat");
+										
 										// Execute event handlers in any scripts that are listening for the onUserEnteredVehicle event from this object.
 										if(avatar->entered_vehicle->event_handlers)
 											avatar->entered_vehicle->event_handlers->executeOnUserEnteredVehicleHandlers(avatar->uid, avatar->entered_vehicle->uid, lock);
-
+										
 										avatar->pending_vehicle_transition = Avatar::VehicleNoChange;
+									}
+									else
+									{
+										// If the physics object, opengl object and script are all loaded:
+										if(avatar->entered_vehicle->physics_object.nonNull() && avatar->entered_vehicle->opengl_engine_ob.nonNull() && avatar->entered_vehicle->vehicle_script.nonNull())
+										{
+											const auto controller_res = vehicle_controllers.find(avatar->entered_vehicle.ptr());
+											if(controller_res == vehicle_controllers.end()) // if there is no vehicle controller for this object :
+											{
+												// Create Vehicle controller
+												Reference<VehiclePhysics> new_controller = createVehicleControllerForScript(avatar->entered_vehicle.ptr());
+												vehicle_controllers.insert(std::make_pair(avatar->entered_vehicle.ptr(), new_controller));
+
+												new_controller->userEnteredVehicle(avatar->vehicle_seat_index);
+
+												conPrint("Avatar entered vehicle with new physics controller in seat " + toString(avatar->vehicle_seat_index));
+											}
+											else // Else if there is already a vehicle controller for the object:
+											{
+												conPrint("Avatar entered vehicle with existing physics controller in seat " + toString(avatar->vehicle_seat_index));
+
+												VehiclePhysics* controller = controller_res->second.ptr();
+												controller->userEnteredVehicle(avatar->vehicle_seat_index);
+											}
+
+											// Execute event handlers in any scripts that are listening for the onUserEnteredVehicle event from this object.
+											if(avatar->entered_vehicle->event_handlers)
+												avatar->entered_vehicle->event_handlers->executeOnUserEnteredVehicleHandlers(avatar->uid, avatar->entered_vehicle->uid, lock);
+
+											avatar->pending_vehicle_transition = Avatar::VehicleNoChange;
+										}
 									}
 								}
 							}
 
 
-							if(avatar->entered_vehicle.nonNull()) // If the other avatar is, or should be in a vehicle:
+							if(avatar->entered_vehicle.nonNull()) // If the other avatar is, or should be in a vehicle or seat:
 							{
 								const auto controller_res = vehicle_controllers.find(avatar->entered_vehicle.ptr()); // Find a vehicle controller for the avatar 'entered_vehicle' object.
 								if(controller_res != vehicle_controllers.end())
@@ -7910,28 +7947,45 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 									pose_constraint.left_hand_hold_point_ws = Vec4f(0,0,0,0);
 									pose_constraint.right_hand_hold_point_ws = Vec4f(0,0,0,0);
 								}
+							}
 
 
-								if(avatar->pending_vehicle_transition == Avatar::ExitVehicle)
+							// Handle avatar exiting vehicle or seat
+							if(avatar->pending_vehicle_transition == Avatar::ExitVehicle)
+							{
+								conPrint("Avatar exited vehicle/seat from seat " + toString(avatar->vehicle_seat_index));
+								
+								if(avatar->entered_vehicle.nonNull())
 								{
-									conPrint("Avatar exited vehicle from seat " + toString(avatar->vehicle_seat_index));
-									if(controller_res != vehicle_controllers.end())
+									if(avatar->entered_vehicle->isSeat())
 									{
-										VehiclePhysics* controller = controller_res->second.ptr();
-										controller->userExitedVehicle(avatar->vehicle_seat_index);
-
 										// Execute event handlers in any scripts that are listening for the onUserExitedVehicle event from this object.
-										WorldObject* vehicle_ob = controller->getControlledObject();
-										if(vehicle_ob->event_handlers)
-											vehicle_ob->event_handlers->executeOnUserExitedVehicleHandlers(avatar->uid, vehicle_ob->uid, lock);
+										if(avatar->entered_vehicle->event_handlers)
+											avatar->entered_vehicle->event_handlers->executeOnUserExitedVehicleHandlers(avatar->uid, avatar->entered_vehicle->uid, lock);
 									}
-									avatar->entered_vehicle = NULL;
-									avatar->pending_vehicle_transition = Avatar::VehicleNoChange;
+									else // It's a vehicle
+									{
+										const auto controller_res = vehicle_controllers.find(avatar->entered_vehicle.ptr());
+										if(controller_res != vehicle_controllers.end())
+										{
+											VehiclePhysics* controller = controller_res->second.ptr();
+											controller->userExitedVehicle(avatar->vehicle_seat_index);
+
+											// Execute event handlers in any scripts that are listening for the onUserExitedVehicle event from this object.
+											WorldObject* vehicle_ob = controller->getControlledObject();
+											if(vehicle_ob->event_handlers)
+												vehicle_ob->event_handlers->executeOnUserExitedVehicleHandlers(avatar->uid, vehicle_ob->uid, lock);
+										}
+									}
 								}
+								
+								avatar->entered_vehicle = NULL;
+								avatar->pending_vehicle_transition = Avatar::VehicleNoChange;
 							}
 						}
+					}
 						 
-						AnimEvents anim_events;
+					AnimEvents anim_events;
 						avatar->graphics.setOverallTransform(*opengl_engine, pos, rotation, use_xyplane_speed_rel_ground_override, xyplane_speed_rel_ground_override,
 							avatar->avatar_settings.pre_ob_to_world_matrix, avatar->anim_state, cur_time, dt, pose_constraint, anim_events);
 						
