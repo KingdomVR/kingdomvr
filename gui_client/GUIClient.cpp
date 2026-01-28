@@ -2393,7 +2393,7 @@ void GUIClient::loadModelForObject(WorldObject* ob, WorldStateLock& world_state_
 				opengl_ob->materials.resize(1);
 				opengl_ob->materials[0].albedo_linear_rgb = Colour3f(0.5f, 0.5f, 0.7f); // Light blue-grey color
 				opengl_ob->materials[0].transparent = true;
-				opengl_ob->materials[0].opacity = 0.5f; // Make it semi-transparent
+				opengl_ob->materials[0].alpha = 0.5f; // Make it semi-transparent
 
 				// Apply squashed scale to the transform
 				Matrix4f scale_matrix = Matrix4f::scaleMatrix(ob->scale.x, ob->scale.y, ob->scale.z * 0.3f);
