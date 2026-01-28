@@ -2398,7 +2398,7 @@ void GUIClient::loadModelForObject(WorldObject* ob, WorldStateLock& world_state_
 				// Apply squashed scale to the transform
 				Matrix4f scale_matrix = Matrix4f::scaleMatrix(ob->scale.x, ob->scale.y, ob->scale.z * 0.3f);
 				opengl_ob->ob_to_world_matrix = Matrix4f::translationMatrix(ob->pos.toVec4fPoint()) * 
-					Matrix4f::rotationMatrix(normalise(ob->axis), ob->angle) *
+					Matrix4f::rotationMatrix(normalise(ob->axis.toVec4fVector()), ob->angle) *
 					scale_matrix;
 
 				ob->opengl_engine_ob = opengl_ob;
