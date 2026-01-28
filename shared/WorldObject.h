@@ -275,14 +275,16 @@ public:
 		ObjectType_WebView = 4,
 		ObjectType_Video = 5, // A YouTube or Twitch video, or mp4 video, with video-specific UI.
 		ObjectType_Text = 6, // Text displayed on a quad
-		ObjectType_Portal = 7 // A portal to another Substrata world or another location in the current world.
+		ObjectType_Portal = 7, // A portal to another Substrata world or another location in the current world.
+		ObjectType_Seat = 8 // A seat that users can sit on
 	};
-	static const uint64 NUM_OBJECT_TYPES = 8;
+	static const uint64 NUM_OBJECT_TYPES = 9;
 
 	static std::string objectTypeString(ObjectType t);
 	static ObjectType objectTypeForString(const std::string& ob_type_string);
 
 	bool isPortal() const { return object_type == ObjectType_Portal; }
+	bool isSeat() const { return object_type == ObjectType_Seat; }
 
 	static void test();
 
