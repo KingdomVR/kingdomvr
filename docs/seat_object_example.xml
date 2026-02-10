@@ -21,7 +21,7 @@ To create a seat object:
 			<upper_body_rot_angle>0.0</upper_body_rot_angle>
 			
 			<!-- Leg positioning -->
-			<upper_leg_rot_angle>1.57</upper_leg_rot_angle>  <!-- ~90 degrees, legs bent -->
+			<upper_leg_rot_angle>1.5708</upper_leg_rot_angle>  <!-- π/2 radians = 90 degrees, legs bent -->
 			<upper_leg_rot_around_thigh_bone_angle>0.0</upper_leg_rot_around_thigh_bone_angle>
 			<upper_leg_apart_angle>0.1</upper_leg_apart_angle>
 			<lower_leg_rot_angle>0.0</lower_leg_rot_angle>

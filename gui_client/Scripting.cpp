@@ -429,7 +429,7 @@ void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_
 				}
 			
 				if(seat_script->settings->seat_settings.empty())
-					throw glare::Exception("seat element must have at least one seat_position element");
+					throw glare::Exception("Seat script must define at least one <seat_position> element");
 
 				vehicle_script_out = seat_script;
 			}

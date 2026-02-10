@@ -3210,7 +3210,7 @@ void GUIClient::loadScriptForObject(WorldObject* ob, WorldStateLock& world_state
 					if(ob->physics_object.isNull())
 					{
 						PhysicsObjectRef physics_ob = new PhysicsObject(/*collidable=*/ob->isCollidable());
-						physics_ob->shape = new jscol::BoxShape(Vec4f(1.f, 1.f, 1.f, 0.f)); // Use scale from object
+						physics_ob->shape = new jscol::BoxShape(Vec4f(1.f, 1.f, 1.f, 0.f)); // Box shape is unit sized; actual dimensions set via physics_ob->scale below
 						physics_ob->is_sensor = ob->isSensor();
 						physics_ob->userdata = ob;
 						physics_ob->userdata_type = 0;
