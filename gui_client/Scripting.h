@@ -197,6 +197,20 @@ public:
 };
 
 
+struct SeatScriptSettings : public VehicleScriptedSettings
+{
+};
+
+
+class SeatScript : public VehicleScript
+{
+public:
+	GLARE_ALIGNED_16_NEW_DELETE
+
+	virtual bool isRightable() const override { return false; }
+};
+
+
 struct WinterScriptEvalOutput
 {
 	Matrix4f ob_to_world;
