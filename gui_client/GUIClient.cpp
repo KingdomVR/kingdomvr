@@ -3195,6 +3195,51 @@ void GUIClient::loadScriptForObject(WorldObject* ob, WorldStateLock& world_state
 			{
 				ob->vehicle_script = vehicle_script;
 				// conPrint("Added hover car script to object");
+				
+				// If this is a seat object, create a transparent squashed cube visualization
+				if(vehicle_script.isType<Scripting::SeatScript>())
+				{
+					// Remove any existing OpenGL object
+					if(ob->opengl_engine_ob.nonNull())
+					{
+						opengl_engine->removeObject(ob->opengl_engine_ob);
+						ob->opengl_engine_ob = NULL;
+					}
+					
+					// Create physics object if it doesn't exist
+					if(ob->physics_object.isNull())
+					{
+						PhysicsObjectRef physics_ob = new PhysicsObject(/*collidable=*/ob->isCollidable());
+						physics_ob->shape = new jscol::BoxShape(Vec4f(1.f, 1.f, 1.f, 0.f)); // Use scale from object
+						physics_ob->is_sensor = ob->isSensor();
+						physics_ob->userdata = ob;
+						physics_ob->userdata_type = 0;
+						physics_ob->ob_uid = ob->uid;
+						physics_ob->pos = ob->pos.toVec4fPoint();
+						physics_ob->rot = Quatf::fromAxisAndAngle(normalise(ob->axis), ob->angle);
+						physics_ob->scale = useScaleForWorldOb(ob->scale);
+						physics_ob->kinematic = !ob->isDynamic();
+						ob->physics_object = physics_ob;
+						
+						physics_world->addObject(physics_ob);
+					}
+					
+					// Create OpenGL object with cube mesh
+					GLObjectRef opengl_ob = opengl_engine->allocateObject();
+					opengl_ob->mesh_data = opengl_engine->getCubeMeshData();
+					
+					const Matrix4f ob_to_world_matrix = obToWorldMatrix(*ob);
+					opengl_ob->ob_to_world_matrix = ob_to_world_matrix;
+					
+					// Set up transparent material
+					opengl_ob->materials.resize(1);
+					opengl_ob->materials[0].albedo_linear_rgb = toLinearSRGB(Colour3f(0.7f, 0.7f, 0.9f)); // Light blue-gray color
+					opengl_ob->materials[0].alpha = 0.3f; // Transparent
+					opengl_ob->materials[0].transparent = true;
+					
+					ob->opengl_engine_ob = opengl_ob;
+					opengl_engine->addObject(ob->opengl_engine_ob);
+				}
 			}
 
 			if(ob == selected_ob.ptr())
