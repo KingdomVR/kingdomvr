@@ -13945,7 +13945,12 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 						const Vec4f vehicle_up_ws = normalise(obToWorldMatrix(*ob) * vehicle_up_os);
 						const bool upright = dot(vehicle_up_ws, up_z_up) > 0.5f;
 
-						if(upright || !ob->vehicle_script->isRightable())
+						if(ob->vehicle_script.isType<Scripting::SeatScript>())
+						{
+							// For seat objects, show "sit" instead of "enter vehicle"
+							ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to sit" : "Press [A] on gamepad to sit", cursor_gl_coords);
+						}
+						else if(upright || !ob->vehicle_script->isRightable())
 							ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to enter vehicle" : "Press [A] on gamepad to enter vehicle", cursor_gl_coords);
 						else
 							ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to right vehicle" : "Press [A] on gamepad to right vehicle", cursor_gl_coords);
