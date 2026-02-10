@@ -104,6 +104,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <tls.h>
 #endif
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <tracy/Tracy.hpp>
 #include "superluminal/PerformanceAPI.h"
 #if BUGSPLAT_SUPPORT
@@ -2460,9 +2461,16 @@ void GUIClient::loadModelForObject(WorldObject* ob, WorldStateLock& world_state_
 			{
 				assert(ob->physics_object.isNull());
 
-				// Create cube physics shape
+				// Create cube physics shape using Jolt Physics
 				PhysicsObjectRef physics_ob = new PhysicsObject(/*collidable=*/ob->isCollidable());
-				physics_ob->shape = PhysicsWorld::createBoxShape(Vec4f(0.5f, 0.5f, 0.5f, 0.f)); // Half extents for unit cube
+				
+				JPH::Ref<JPH::BoxShapeSettings> box_shape_settings = new JPH::BoxShapeSettings(JPH::Vec3(0.5f, 0.5f, 0.5f)); // Half extents
+				JPH::Result<JPH::Ref<JPH::Shape>> result = box_shape_settings->Create();
+				if(result.HasError())
+					throw glare::Exception(std::string("Error building seat box shape: ") + result.GetError().c_str());
+				physics_ob->shape.jolt_shape = result.Get();
+				physics_ob->shape.size_B = PhysicsWorld::computeSizeBForShape(physics_ob->shape.jolt_shape);
+				
 				physics_ob->is_sensor = ob->isSensor();
 				physics_ob->userdata = ob;
 				physics_ob->userdata_type = 0;
