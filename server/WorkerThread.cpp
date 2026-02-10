@@ -1422,20 +1422,22 @@ void WorkerThread::doRun()
 
 							//conPrint("Received AvatarPerformGesture: '" + gesture_name + "'");
 
-							//if(!client_user_id.valid())
-							//{
-							//	writeErrorMessageToClient(socket, "You must be logged in to perform a gesture.");
-							//}
-							//else
-							//{
-								// Enqueue AvatarPerformGesture messages to worker threads to send
-								MessageUtils::initPacket(scratch_packet, Protocol::AvatarPerformGesture);
-								writeToStream(avatar_uid, scratch_packet);
-								scratch_packet.writeStringLengthFirst(gesture_name);
-								MessageUtils::updatePacketLengthField(scratch_packet);
+							// Enqueue AvatarPerformGesture messages to worker threads to send
+							MessageUtils::initPacket(scratch_packet, Protocol::AvatarPerformGesture);
+							writeToStream(avatar_uid, scratch_packet);
+							scratch_packet.writeStringLengthFirst(gesture_name);
+							MessageUtils::updatePacketLengthField(scratch_packet);
 
-								enqueuePacketToBroadcast(scratch_packet);
-							//}
+							enqueuePacketToBroadcast(scratch_packet);
+
+
+							// Get gesture animation file if we don't have it
+							if(client_user_id.valid()) // Only do for logged-in users
+							{
+								const URLString anim_URL = URLString(gesture_name) + ".subanim";
+								sendGetFileMessageIfNeeded(anim_URL);
+							}
+
 							break;
 						}
 					case Protocol::AvatarStopGesture:
