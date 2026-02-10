@@ -607,7 +607,7 @@ void CarPhysics::updateDebugVisObjects()
 	if(show_debug_vis_obs)
 	{
 		const Matrix4f R_inv = ((settings.script_settings->model_to_y_forwards_rot_2 * settings.script_settings->model_to_y_forwards_rot_1).conjugate()).toMatrix();
-		const Matrix4f z_up_to_model_space = R_inv;
+		// const Matrix4f z_up_to_model_space = R_inv; // Unused for now
 
 		//------------------ convex hull points ------------------
 		{

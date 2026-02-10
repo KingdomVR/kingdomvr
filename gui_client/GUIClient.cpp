@@ -9457,7 +9457,7 @@ std::string GUIClient::getDiagnosticsString(bool do_graphics_diagnostics, bool d
 
 			if(!selected_ob->opengl_engine_ob->materials.empty() && !selected_ob->materials.empty())
 			{
-				for(int i=0; i<2 && i<selected_ob->opengl_engine_ob->materials.size() && i<selected_ob->materials.size(); ++i)
+				for(size_t i=0; i<2 && i<selected_ob->opengl_engine_ob->materials.size() && i<selected_ob->materials.size(); ++i)
 				{
 					OpenGLMaterial& mat = selected_ob->opengl_engine_ob->materials[i];
 					if(mat.albedo_texture)
