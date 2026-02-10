@@ -1342,19 +1342,26 @@ void WorkerThread::doRun()
 							const uint32 flags         = msg_buffer.readUInt32();
 							const uint32 stream_id     = msg_buffer.readUInt32();
 
-							if(!BitUtils::isBitSet(flags, 0x1u)) // If renew flag is not set:
-								conPrint("WorkerThread: received Protocol::AudioStreamToServerStarted without renew flag");
-
-							// Send message to all clients
+							if(!client_user_id.valid())
 							{
-								MessageUtils::initPacket(scratch_packet, Protocol::AudioStreamToServerStarted);
-								writeToStream(client_avatar_uid, scratch_packet); // Send client avatar UID as well.
-								scratch_packet.writeUInt32(sampling_rate);
-								scratch_packet.writeUInt32(flags);
-								scratch_packet.writeUInt32(stream_id);
-								MessageUtils::updatePacketLengthField(scratch_packet);
+								writeErrorMessageToClient(socket, "You must be logged in for audio streaming.");
+							}
+							else
+							{
+								if(!BitUtils::isBitSet(flags, 0x1u)) // If renew flag is not set:
+									conPrint("WorkerThread: received Protocol::AudioStreamToServerStarted without renew flag");
 
-								enqueuePacketToBroadcast(scratch_packet);
+								// Send message to all clients
+								{
+									MessageUtils::initPacket(scratch_packet, Protocol::AudioStreamToServerStarted);
+									writeToStream(client_avatar_uid, scratch_packet); // Send client avatar UID as well.
+									scratch_packet.writeUInt32(sampling_rate);
+									scratch_packet.writeUInt32(flags);
+									scratch_packet.writeUInt32(stream_id);
+									MessageUtils::updatePacketLengthField(scratch_packet);
+
+									enqueuePacketToBroadcast(scratch_packet);
+								}
 							}
 
 							break;
@@ -1363,13 +1370,20 @@ void WorkerThread::doRun()
 						{
 							conPrint("WorkerThread: received Protocol::AudioStreamToServerEnded");
 
-							// Send message to all clients
+							if(!client_user_id.valid())
 							{
-								MessageUtils::initPacket(scratch_packet, Protocol::AudioStreamToServerEnded);
-								writeToStream(client_avatar_uid, scratch_packet); // Send client avatar UID as well.
-								MessageUtils::updatePacketLengthField(scratch_packet);
+								writeErrorMessageToClient(socket, "You must be logged in for audio streaming.");
+							}
+							else
+							{
+								// Send message to all clients
+								{
+									MessageUtils::initPacket(scratch_packet, Protocol::AudioStreamToServerEnded);
+									writeToStream(client_avatar_uid, scratch_packet); // Send client avatar UID as well.
+									MessageUtils::updatePacketLengthField(scratch_packet);
 
-								enqueuePacketToBroadcast(scratch_packet);
+									enqueuePacketToBroadcast(scratch_packet);
+								}
 							}
 
 							break;
@@ -1408,20 +1422,22 @@ void WorkerThread::doRun()
 
 							//conPrint("Received AvatarPerformGesture: '" + gesture_name + "'");
 
-							//if(!client_user_id.valid())
-							//{
-							//	writeErrorMessageToClient(socket, "You must be logged in to perform a gesture.");
-							//}
-							//else
-							//{
-								// Enqueue AvatarPerformGesture messages to worker threads to send
-								MessageUtils::initPacket(scratch_packet, Protocol::AvatarPerformGesture);
-								writeToStream(avatar_uid, scratch_packet);
-								scratch_packet.writeStringLengthFirst(gesture_name);
-								MessageUtils::updatePacketLengthField(scratch_packet);
+							// Enqueue AvatarPerformGesture messages to worker threads to send
+							MessageUtils::initPacket(scratch_packet, Protocol::AvatarPerformGesture);
+							writeToStream(avatar_uid, scratch_packet);
+							scratch_packet.writeStringLengthFirst(gesture_name);
+							MessageUtils::updatePacketLengthField(scratch_packet);
 
-								enqueuePacketToBroadcast(scratch_packet);
-							//}
+							enqueuePacketToBroadcast(scratch_packet);
+
+
+							// Get gesture animation file if we don't have it
+							if(client_user_id.valid()) // Only do for logged-in users
+							{
+								const URLString anim_URL = URLString(gesture_name) + ".subanim";
+								sendGetFileMessageIfNeeded(anim_URL);
+							}
+
 							break;
 						}
 					case Protocol::AvatarStopGesture:
@@ -2908,6 +2924,10 @@ void WorkerThread::doRun()
 								if(world_state->isInReadOnlyMode())
 								{
 									msg_to_client = "Server is in read-only mode, you can't sign up right now.";
+								}
+								else if(!server->config.enable_registration)
+								{
+									msg_to_client = "Server is not currently accepting new registrations.";
 								}
 								else
 								{

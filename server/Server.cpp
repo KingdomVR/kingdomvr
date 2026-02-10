@@ -197,6 +197,7 @@ static ServerConfig parseServerConfig(const std::string& config_path)
 	config.update_parcel_sales					= XMLParseUtils::parseBoolWithDefault(root_elem, "update_parcel_sales", /*default val=*/false);
 	config.do_lua_http_request_rate_limiting	= XMLParseUtils::parseBoolWithDefault(root_elem, "do_lua_http_request_rate_limiting", /*default val=*/true);
 	config.enable_LOD_chunking					= XMLParseUtils::parseBoolWithDefault(root_elem, "enable_LOD_chunking", /*default val=*/true);
+	config.enable_registration					= XMLParseUtils::parseBoolWithDefault(root_elem, "enable_registration", /*default val=*/true);
 	config.AI_model_id							= XMLParseUtils::parseStringWithDefault(root_elem, "AI_model_id", /*default val=*/"xai/grok-4-1-fast-non-reasoning");
 	config.shared_LLM_prompt_part				= XMLParseUtils::parseStringWithDefault(root_elem, "shared_LLM_prompt_part", /*default val=*/
 		std::string("You are a helpful bot in the Substrata Metaverse.\n") + 
@@ -325,18 +326,21 @@ int main(int argc, char *argv[])
 		server.world_state->resource_manager = new ResourceManager(server_resource_dir);
 
 
-		// Copy default avatar model into resource dir
+		// Add all files from /dist_resources into the resource manager.
 		{
-			const URLString mesh_URL = "xbot_glb_3242545562312850498.bmesh";
+			const std::vector<std::string> paths = FileUtils::getFilesInDirFullPaths(server_state_dir + "/dist_resources/");
+			for(size_t i=0; i<paths.size(); ++i)
+				server.world_state->resource_manager->addExternalResource(/*URL=*/URLString(FileUtils::getFilename(paths[i])), /*local_abs_path=*/paths[i]);
 
-			if(!server.world_state->resource_manager->isFileForURLPresent(mesh_URL))
-			{
-				const std::string src_path = server_state_dir + "/dist_resources/" + toStdString(mesh_URL);
-				if(FileUtils::fileExists(src_path))
-					server.world_state->resource_manager->copyLocalFileToResourceDir(src_path, mesh_URL);
-				else
-					conPrint("WARNING: file '" + src_path + "' did not exist, default avatar model will be missing for webclient users.");
-			}
+
+			// Issue some warnings if files not present
+			const URLString xbot_mesh_URL = "xbot_glb_3242545562312850498.bmesh";
+			if(!server.world_state->resource_manager->isFileForURLPresent(xbot_mesh_URL))
+				conPrint("WARNING: file '" + toStdString(xbot_mesh_URL) + "' did not exist, default avatar model will be missing for webclient users.");
+
+			const URLString example_gesture_URL = "Excited.subanim";
+			if(!server.world_state->resource_manager->isFileForURLPresent(example_gesture_URL))
+				conPrint("WARNING: file '" + toStdString(example_gesture_URL) + "' did not exist, gesture animations will be missing for users.");
 		}
 
 
