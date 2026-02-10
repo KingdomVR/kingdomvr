@@ -2454,6 +2454,46 @@ void GUIClient::loadModelForObject(WorldObject* ob, WorldStateLock& world_state_
 				loadScriptForObject(ob, world_state_lock); // Load any script for the object.
 			}
 		}
+		else if(ob->object_type == WorldObject::ObjectType_Seat)
+		{
+			if(ob->opengl_engine_ob.isNull())
+			{
+				assert(ob->physics_object.isNull());
+
+				// Create cube physics shape
+				PhysicsObjectRef physics_ob = new PhysicsObject(/*collidable=*/ob->isCollidable());
+				physics_ob->shape = PhysicsWorld::createBoxShape(Vec4f(0.5f, 0.5f, 0.5f, 0.f)); // Half extents for unit cube
+				physics_ob->is_sensor = ob->isSensor();
+				physics_ob->userdata = ob;
+				physics_ob->userdata_type = 0;
+				physics_ob->ob_uid = ob->uid;
+				physics_ob->pos = ob->pos.toVec4fPoint();
+				physics_ob->rot = Quatf::fromAxisAndAngle(normalise(ob->axis), ob->angle);
+				physics_ob->scale = useScaleForWorldOb(ob->scale);
+				physics_ob->kinematic = !ob->isDynamic();
+
+				// Create transparent cube mesh
+				GLObjectRef opengl_ob = opengl_engine->allocateObject();
+				opengl_ob->mesh_data = opengl_engine->getCubeMeshData();
+				opengl_ob->ob_to_world_matrix = ob_to_world_matrix;
+				
+				// Set up transparent material
+				opengl_ob->materials.resize(1);
+				opengl_ob->materials[0].albedo_linear_rgb = toLinearSRGB(Colour3f(0.7f, 0.7f, 0.9f)); // Light blue-gray
+				opengl_ob->materials[0].alpha = 0.3f; // Transparent
+				opengl_ob->materials[0].transparent = true;
+				opengl_ob->materials[0].materialise_effect = use_materialise_effect;
+				opengl_ob->materials[0].materialise_start_time = ob->materialise_effect_start_time;
+
+				ob->opengl_engine_ob = opengl_ob;
+				ob->physics_object = physics_ob;
+
+				opengl_engine->addObject(ob->opengl_engine_ob);
+				physics_world->addObject(ob->physics_object);
+
+				loadScriptForObject(ob, world_state_lock); // Load any script for the object.
+			}
+		}
 		else if(ob->object_type == WorldObject::ObjectType_WebView)
 		{
 			if(ob->opengl_engine_ob.isNull())
@@ -3195,51 +3235,6 @@ void GUIClient::loadScriptForObject(WorldObject* ob, WorldStateLock& world_state
 			{
 				ob->vehicle_script = vehicle_script;
 				// conPrint("Added hover car script to object");
-				
-				// If this is a seat object, create a transparent squashed cube visualization
-				if(vehicle_script.isType<Scripting::SeatScript>())
-				{
-					// Remove any existing OpenGL object
-					if(ob->opengl_engine_ob.nonNull())
-					{
-						opengl_engine->removeObject(ob->opengl_engine_ob);
-						ob->opengl_engine_ob = NULL;
-					}
-					
-					// Create physics object if it doesn't exist
-					if(ob->physics_object.isNull())
-					{
-						PhysicsObjectRef physics_ob = new PhysicsObject(/*collidable=*/ob->isCollidable());
-						physics_ob->shape = new jscol::BoxShape(Vec4f(1.f, 1.f, 1.f, 0.f)); // Box shape is unit sized; actual dimensions set via physics_ob->scale below
-						physics_ob->is_sensor = ob->isSensor();
-						physics_ob->userdata = ob;
-						physics_ob->userdata_type = 0;
-						physics_ob->ob_uid = ob->uid;
-						physics_ob->pos = ob->pos.toVec4fPoint();
-						physics_ob->rot = Quatf::fromAxisAndAngle(normalise(ob->axis), ob->angle);
-						physics_ob->scale = useScaleForWorldOb(ob->scale);
-						physics_ob->kinematic = !ob->isDynamic();
-						ob->physics_object = physics_ob;
-						
-						physics_world->addObject(physics_ob);
-					}
-					
-					// Create OpenGL object with cube mesh
-					GLObjectRef opengl_ob = opengl_engine->allocateObject();
-					opengl_ob->mesh_data = opengl_engine->getCubeMeshData();
-					
-					const Matrix4f ob_to_world_matrix = obToWorldMatrix(*ob);
-					opengl_ob->ob_to_world_matrix = ob_to_world_matrix;
-					
-					// Set up transparent material
-					opengl_ob->materials.resize(1);
-					opengl_ob->materials[0].albedo_linear_rgb = toLinearSRGB(Colour3f(0.7f, 0.7f, 0.9f)); // Light blue-gray color
-					opengl_ob->materials[0].alpha = 0.3f; // Transparent
-					opengl_ob->materials[0].transparent = true;
-					
-					ob->opengl_engine_ob = opengl_ob;
-					opengl_engine->addObject(ob->opengl_engine_ob);
-				}
 			}
 
 			if(ob == selected_ob.ptr())
@@ -13945,17 +13940,18 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 						const Vec4f vehicle_up_ws = normalise(obToWorldMatrix(*ob) * vehicle_up_os);
 						const bool upright = dot(vehicle_up_ws, up_z_up) > 0.5f;
 
-						if(ob->vehicle_script.isType<Scripting::SeatScript>())
-						{
-							// For seat objects, show "sit" instead of "enter vehicle"
-							ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to sit" : "Press [A] on gamepad to sit", cursor_gl_coords);
-						}
-						else if(upright || !ob->vehicle_script->isRightable())
+						if(upright || !ob->vehicle_script->isRightable())
 							ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to enter vehicle" : "Press [A] on gamepad to enter vehicle", cursor_gl_coords);
 						else
 							ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to right vehicle" : "Press [A] on gamepad to right vehicle", cursor_gl_coords);
 						show_mouseover_info_ui = true;
 					}
+
+				if(ob->object_type == WorldObject::ObjectType_Seat) // If this is a seat object:
+				{
+					ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to sit" : "Press [A] on gamepad to sit", cursor_gl_coords);
+					show_mouseover_info_ui = true;
+				}
 
 					if(ob->event_handlers && ob->event_handlers->onUserUsedObject_handlers.nonEmpty())
 					{

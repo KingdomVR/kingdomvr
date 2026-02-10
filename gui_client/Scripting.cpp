@@ -407,33 +407,6 @@ void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_
 				vehicle_script_out = car_script;
 			}
 		}
-
-		// ----------- seat -----------
-		{
-			pugi::xml_node seat_elem = root_elem.child("seat");
-			if(seat_elem)
-			{
-				Reference<SeatScript> seat_script = new SeatScript();
-
-				seat_script->settings = new SeatScriptSettings();
-
-				seat_script->settings->model_to_y_forwards_rot_1 = parseRotationWithDefault(seat_elem, "model_to_y_forwards_rot_1", Quatf::identity());
-				seat_script->settings->model_to_y_forwards_rot_2 = parseRotationWithDefault(seat_elem, "model_to_y_forwards_rot_2", Quatf::identity());
-
-				for(pugi::xml_node seat_pos_elem = seat_elem.child("seat_position"); seat_pos_elem; seat_pos_elem = seat_pos_elem.next_sibling("seat_position"))
-				{
-					SeatSettings default_seat_settings;
-					SeatSettings seat_settings = parseSeatSettings(seat_pos_elem, default_seat_settings);
-
-					seat_script->settings->seat_settings.push_back(seat_settings);
-				}
-			
-				if(seat_script->settings->seat_settings.empty())
-					throw glare::Exception("Seat script must define at least one <seat_position> element");
-
-				vehicle_script_out = seat_script;
-			}
-		}
 	}
 	catch(glare::Exception& e)
 	{
