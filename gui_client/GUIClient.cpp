@@ -15361,6 +15361,29 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 			{
 				WorldObject* ob = static_cast<WorldObject*>(results.hit_object->userdata);
 
+				// Handle seat objects
+				if(ob->object_type == WorldObject::ObjectType_Seat)
+				{
+					if(player_physics.getControllingObject().nonNull()) // If currently sitting/in vehicle, get out
+					{
+						player_physics.exitVehicle(*physics_world);
+					}
+					else // Else sit down on seat
+					{
+						player_physics.enterVehicle(ob, /*seat_index=*/0, *physics_world);
+						player_physics.setSittingShape(*physics_world);
+
+						// Send message to server
+						MessageUtils::initPacket(scratch_packet, Protocol::AvatarEnteredVehicle);
+						writeToStream(this->client_avatar_uid, scratch_packet);
+						writeToStream(ob->uid, scratch_packet); // Write seat object UID
+						scratch_packet.writeUInt32(0); // Seat index (always 0 for basic seats)
+						scratch_packet.writeUInt32(0); // Write flags
+						enqueueMessageToSend(*this->client_thread, scratch_packet);
+					}
+					return;
+				}
+
 				if(ob->vehicle_script.nonNull() && ob->physics_object.nonNull())
 				{
 					if(ob->isDynamic()) // Make sure object is dynamic, which is needed for vehicles
