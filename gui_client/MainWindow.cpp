@@ -1790,6 +1790,57 @@ void MainWindow::on_actionAdd_Portal_triggered()
 }
 
 
+void MainWindow::on_actionAdd_Seat_triggered()
+{
+	// Place seat at ground level in front of player
+	const Vec3d ob_pos = gui_client.cam_controller.getFirstPersonPosition() + 
+		removeComponentInDir(gui_client.cam_controller.getForwardsVec(), Vec3d(0,0,1)) * 2.0f - // Forwards from camera, parallel to ground
+		Vec3d(0,0,PlayerPhysics::getEyeHeight()); // Drop to ground level
+
+	// Check permissions
+	bool ob_pos_in_parcel;
+	const bool have_creation_perms = gui_client.haveParcelObjectCreatePermissions(ob_pos, ob_pos_in_parcel);
+	if(!have_creation_perms)
+	{
+		if(ob_pos_in_parcel)
+			showErrorNotification("You do not have write permissions, and are not an admin for this parcel.");
+		else
+			showErrorNotification("You can only create seats in a parcel that you have write permissions for.");
+		return;
+	}
+
+	WorldObjectRef new_world_object = new WorldObject();
+	new_world_object->uid = UID(0); // Will be set by server
+	new_world_object->object_type = WorldObject::ObjectType_Seat;
+	
+	// Initialize seat_data to zeros to avoid garbage values
+	std::memset(&new_world_object->type_data.seat_data, 0, sizeof(WorldObject::SeatTypeData));
+	
+	new_world_object->pos = ob_pos;
+	new_world_object->axis = Vec3f(0, 0, 1);
+	new_world_object->angle = Maths::roundToMultipleFloating((float)gui_client.cam_controller.getAngles().x - Maths::pi_2<float>(), Maths::pi_4<float>()); // Round to nearest 45 degree angle, facing player
+	new_world_object->scale = Vec3f(0.5f, 0.5f, 0.2f); // Squashed cube - flat seat (flat in Z axis)
+
+	// Load default seat script from resources
+	new_world_object->script = FileUtils::readEntireFileTextMode(gui_client.resources_dir_path + "/summoned_seat_script.xml");
+
+	// Set AABB - use cube mesh bounds
+	const float half_w = 0.5f;
+	const js::AABBox aabb_os = js::AABBox(Vec4f(-half_w, -half_w, -half_w, 1), Vec4f(half_w, half_w, half_w, 1));
+	new_world_object->setAABBOS(aabb_os);
+
+	// Send CreateObject message to server
+	{
+		MessageUtils::initPacket(scratch_packet, Protocol::CreateObject);
+		new_world_object->writeToNetworkStream(scratch_packet);
+
+		enqueueMessageToSend(*gui_client.client_thread, scratch_packet);
+	}
+
+	showInfoNotification("Added seat.");
+}
+
+
 void MainWindow::on_actionAdd_Web_View_triggered()
 {
 	const float quad_w = 0.4f;

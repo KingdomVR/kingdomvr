@@ -104,6 +104,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <tls.h>
 #endif
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <tracy/Tracy.hpp>
 #include "superluminal/PerformanceAPI.h"
 #if BUGSPLAT_SUPPORT
@@ -2449,6 +2450,53 @@ void GUIClient::loadModelForObject(WorldObject* ob, WorldStateLock& world_state_
 				opengl_engine->addObject(ob->opengl_engine_ob);
 				opengl_engine->addLight(ob->opengl_light);
 
+				physics_world->addObject(ob->physics_object);
+
+				loadScriptForObject(ob, world_state_lock); // Load any script for the object.
+			}
+		}
+		else if(ob->object_type == WorldObject::ObjectType_Seat)
+		{
+			if(ob->opengl_engine_ob.isNull())
+			{
+				assert(ob->physics_object.isNull());
+
+				// Create cube physics shape using Jolt Physics
+				PhysicsObjectRef physics_ob = new PhysicsObject(/*collidable=*/ob->isCollidable());
+				
+				JPH::Ref<JPH::BoxShapeSettings> box_shape_settings = new JPH::BoxShapeSettings(JPH::Vec3(0.5f, 0.5f, 0.5f)); // Half extents
+				JPH::Result<JPH::Ref<JPH::Shape>> result = box_shape_settings->Create();
+				if(result.HasError())
+					throw glare::Exception(std::string("Error building seat box shape: ") + result.GetError().c_str());
+				physics_ob->shape.jolt_shape = result.Get();
+				physics_ob->shape.size_B = PhysicsWorld::computeSizeBForShape(physics_ob->shape.jolt_shape);
+				
+				physics_ob->is_sensor = ob->isSensor();
+				physics_ob->userdata = ob;
+				physics_ob->userdata_type = 0;
+				physics_ob->ob_uid = ob->uid;
+				physics_ob->pos = ob->pos.toVec4fPoint();
+				physics_ob->rot = Quatf::fromAxisAndAngle(normalise(ob->axis), ob->angle);
+				physics_ob->scale = useScaleForWorldOb(ob->scale);
+				physics_ob->kinematic = !ob->isDynamic();
+
+				// Create transparent cube mesh
+				GLObjectRef opengl_ob = opengl_engine->allocateObject();
+				opengl_ob->mesh_data = opengl_engine->getCubeMeshData();
+				opengl_ob->ob_to_world_matrix = ob_to_world_matrix;
+				
+				// Set up transparent material
+				opengl_ob->materials.resize(1);
+				opengl_ob->materials[0].albedo_linear_rgb = toLinearSRGB(Colour3f(0.7f, 0.7f, 0.9f)); // Light blue-gray
+				opengl_ob->materials[0].alpha = 0.3f; // Transparent
+				opengl_ob->materials[0].transparent = true;
+				opengl_ob->materials[0].materialise_effect = use_materialise_effect;
+				opengl_ob->materials[0].materialise_start_time = ob->materialise_effect_start_time;
+
+				ob->opengl_engine_ob = opengl_ob;
+				ob->physics_object = physics_ob;
+
+				opengl_engine->addObject(ob->opengl_engine_ob);
 				physics_world->addObject(ob->physics_object);
 
 				loadScriptForObject(ob, world_state_lock); // Load any script for the object.
@@ -7770,6 +7818,60 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 									assert(0); // Invalid seat index
 								}
 							}
+							else if(current_seat_object.nonNull() && current_seat_object->object_type == WorldObject::ObjectType_Seat)
+							{
+								// Handle static seat anchoring (no vehicle controller)
+								// Use NoScale transform to avoid applying seat's scale (0.5, 0.5, 0.2) to avatar
+								Matrix4f ob_to_world_no_scale;
+								if(current_seat_object->physics_object.nonNull())
+									ob_to_world_no_scale = current_seat_object->physics_object->getSmoothedObToWorldNoScaleMatrix();
+								else
+									ob_to_world_no_scale = obToWorldMatrix(*current_seat_object); // Fallback if no physics object
+								
+								pose_constraint.sitting = true;
+								
+								// Seat position in world space
+								const Vec4f seat_pos_os(
+									current_seat_object->type_data.seat_data.seat_position[0],
+									current_seat_object->type_data.seat_data.seat_position[1],
+									current_seat_object->type_data.seat_data.seat_position[2],
+									current_seat_object->type_data.seat_data.seat_position[3]
+								);
+								pose_constraint.seat_to_world = ob_to_world_no_scale * Matrix4f::translationMatrix(seat_pos_os);
+								
+								// Seats don't have model rotation transforms (they're upright)
+								pose_constraint.model_to_y_forwards_rot_1 = Quatf::identity();
+								pose_constraint.model_to_y_forwards_rot_2 = Quatf::identity();
+								
+								// Copy pose angles from seat data
+								pose_constraint.upper_body_rot_angle = current_seat_object->type_data.seat_data.upper_body_rot_angle;
+								pose_constraint.upper_leg_rot_angle = current_seat_object->type_data.seat_data.upper_leg_rot_angle;
+								pose_constraint.upper_leg_rot_around_thigh_bone_angle = current_seat_object->type_data.seat_data.upper_leg_rot_around_thigh_bone_angle;
+								pose_constraint.upper_leg_apart_angle = current_seat_object->type_data.seat_data.upper_leg_apart_angle;
+								pose_constraint.lower_leg_rot_angle = current_seat_object->type_data.seat_data.lower_leg_rot_angle;
+								pose_constraint.lower_leg_apart_angle = current_seat_object->type_data.seat_data.lower_leg_apart_angle;
+								pose_constraint.rotate_foot_out_angle = current_seat_object->type_data.seat_data.rotate_foot_out_angle;
+								pose_constraint.arm_down_angle = current_seat_object->type_data.seat_data.arm_down_angle;
+								pose_constraint.arm_out_angle = current_seat_object->type_data.seat_data.arm_out_angle;
+								pose_constraint.upper_arm_shoulder_lift_angle = current_seat_object->type_data.seat_data.upper_arm_shoulder_lift_angle;
+								pose_constraint.lower_arm_up_angle = current_seat_object->type_data.seat_data.lower_arm_up_angle;
+								
+								// Hand hold points in world space
+								const Vec4f left_hand_os(
+									current_seat_object->type_data.seat_data.left_hand_hold_point_os[0],
+									current_seat_object->type_data.seat_data.left_hand_hold_point_os[1],
+									current_seat_object->type_data.seat_data.left_hand_hold_point_os[2],
+									current_seat_object->type_data.seat_data.left_hand_hold_point_os[3]
+								);
+								const Vec4f right_hand_os(
+									current_seat_object->type_data.seat_data.right_hand_hold_point_os[0],
+									current_seat_object->type_data.seat_data.right_hand_hold_point_os[1],
+									current_seat_object->type_data.seat_data.right_hand_hold_point_os[2],
+									current_seat_object->type_data.seat_data.right_hand_hold_point_os[3]
+								);
+								pose_constraint.left_hand_hold_point_ws = ob_to_world_no_scale * left_hand_os;
+								pose_constraint.right_hand_hold_point_ws = ob_to_world_no_scale * right_hand_os;
+							}
 						}
 						else
 						{
@@ -7846,6 +7948,60 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 										assert(0); // Seat index was invalid.
 									}
 								}
+else if(avatar->entered_vehicle.nonNull() && avatar->entered_vehicle->object_type == WorldObject::ObjectType_Seat)
+{
+// Handle static seat anchoring for other avatars (no vehicle controller)
+// Use NoScale transform to avoid applying seat's scale (0.5, 0.5, 0.2) to avatar
+Matrix4f ob_to_world_no_scale;
+if(avatar->entered_vehicle->physics_object.nonNull())
+ob_to_world_no_scale = avatar->entered_vehicle->physics_object->getSmoothedObToWorldNoScaleMatrix();
+else
+ob_to_world_no_scale = obToWorldMatrix(*avatar->entered_vehicle); // Fallback if no physics object
+
+pose_constraint.sitting = true;
+
+// Seat position in world space
+const Vec4f seat_pos_os(
+avatar->entered_vehicle->type_data.seat_data.seat_position[0],
+avatar->entered_vehicle->type_data.seat_data.seat_position[1],
+avatar->entered_vehicle->type_data.seat_data.seat_position[2],
+avatar->entered_vehicle->type_data.seat_data.seat_position[3]
+);
+pose_constraint.seat_to_world = ob_to_world_no_scale * Matrix4f::translationMatrix(seat_pos_os);
+
+// Seats don't have model rotation transforms (they're upright)
+pose_constraint.model_to_y_forwards_rot_1 = Quatf::identity();
+pose_constraint.model_to_y_forwards_rot_2 = Quatf::identity();
+
+// Copy pose angles from seat data
+pose_constraint.upper_body_rot_angle = avatar->entered_vehicle->type_data.seat_data.upper_body_rot_angle;
+pose_constraint.upper_leg_rot_angle = avatar->entered_vehicle->type_data.seat_data.upper_leg_rot_angle;
+pose_constraint.upper_leg_rot_around_thigh_bone_angle = avatar->entered_vehicle->type_data.seat_data.upper_leg_rot_around_thigh_bone_angle;
+pose_constraint.upper_leg_apart_angle = avatar->entered_vehicle->type_data.seat_data.upper_leg_apart_angle;
+pose_constraint.lower_leg_rot_angle = avatar->entered_vehicle->type_data.seat_data.lower_leg_rot_angle;
+pose_constraint.lower_leg_apart_angle = avatar->entered_vehicle->type_data.seat_data.lower_leg_apart_angle;
+pose_constraint.rotate_foot_out_angle = avatar->entered_vehicle->type_data.seat_data.rotate_foot_out_angle;
+pose_constraint.arm_down_angle = avatar->entered_vehicle->type_data.seat_data.arm_down_angle;
+pose_constraint.arm_out_angle = avatar->entered_vehicle->type_data.seat_data.arm_out_angle;
+pose_constraint.upper_arm_shoulder_lift_angle = avatar->entered_vehicle->type_data.seat_data.upper_arm_shoulder_lift_angle;
+pose_constraint.lower_arm_up_angle = avatar->entered_vehicle->type_data.seat_data.lower_arm_up_angle;
+
+// Hand hold points in world space
+const Vec4f left_hand_os(
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[0],
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[1],
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[2],
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[3]
+);
+const Vec4f right_hand_os(
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[0],
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[1],
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[2],
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[3]
+);
+pose_constraint.left_hand_hold_point_ws = ob_to_world_no_scale * left_hand_os;
+pose_constraint.right_hand_hold_point_ws = ob_to_world_no_scale * right_hand_os;
+}
 
 
 								if(avatar->pending_vehicle_transition == Avatar::ExitVehicle)
@@ -9409,7 +9565,7 @@ std::string GUIClient::getDiagnosticsString(bool do_graphics_diagnostics, bool d
 
 			if(!selected_ob->opengl_engine_ob->materials.empty() && !selected_ob->materials.empty())
 			{
-				for(int i=0; i<2 && i<selected_ob->opengl_engine_ob->materials.size() && i<selected_ob->materials.size(); ++i)
+				for(size_t i=0; i<2 && i<selected_ob->opengl_engine_ob->materials.size() && i<selected_ob->materials.size(); ++i)
 				{
 					OpenGLMaterial& mat = selected_ob->opengl_engine_ob->materials[i];
 					if(mat.albedo_texture)
@@ -12532,6 +12688,7 @@ void GUIClient::clearAllObjects()
 	deselectObject();
 
 	vehicle_controller_inside = NULL;
+	current_seat_object = NULL; // Clear seat reference
 	vehicle_controllers.clear();
 
 
@@ -13907,6 +14064,12 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 						show_mouseover_info_ui = true;
 					}
 
+				if(ob->object_type == WorldObject::ObjectType_Seat) // If this is a seat object:
+				{
+					ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to sit" : "Press [A] on gamepad to sit", cursor_gl_coords);
+					show_mouseover_info_ui = true;
+				}
+
 					if(ob->event_handlers && ob->event_handlers->onUserUsedObject_handlers.nonEmpty())
 					{
 						ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to use" : "Press [A] on gamepad to use", cursor_gl_coords);
@@ -15250,6 +15413,38 @@ static bool keyIsDeleteKey(int keycode)
 // if use_mouse_cursor is false, use crosshair as cursor instead.
 void GUIClient::useActionTriggered(bool use_mouse_cursor)
 {
+	// If we are sitting in a seat (not a vehicle), stand up
+	if(current_seat_object.nonNull())
+	{
+		WorldStateLock lock(world_state->mutex);
+		
+		// Clear the client avatar's entered_vehicle
+		auto res = this->world_state->avatars.find(this->client_avatar_uid);
+		if(res != this->world_state->avatars.end())
+		{
+			Avatar* client_avatar = res->second.getPointer();
+			client_avatar->entered_vehicle = NULL;
+			client_avatar->pending_vehicle_transition = Avatar::ExitVehicle;
+		}
+		
+		// Stand up
+		player_physics.setStandingShape(*physics_world);
+		
+		// Move player slightly away from seat
+		Vec4f new_player_pos = cam_controller.getFirstPersonPosition().toVec4fPoint() + Vec4f(0, 0, 0.5f, 0);
+		new_player_pos[2] = myMax(new_player_pos[2], 1.67f); // Make sure above ground
+		player_physics.setEyePosition(Vec3d(new_player_pos), /*linear vel=*/Vec4f(0,0,0,0));
+		
+		// Send exit message to server
+		MessageUtils::initPacket(scratch_packet, Protocol::AvatarExitedVehicle);
+		writeToStream(this->client_avatar_uid, scratch_packet);
+		enqueueMessageToSend(*this->client_thread, scratch_packet);
+		
+		current_seat_object = NULL;
+		showInfoNotification("Stood up.");
+		return;
+	}
+	
 	// If we are controlling a vehicle, exit it
 	if(vehicle_controller_inside.nonNull())
 	{
@@ -15306,6 +15501,50 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 			if(results.hit_object->userdata && results.hit_object->userdata_type == 0) // If we hit an object:
 			{
 				WorldObject* ob = static_cast<WorldObject*>(results.hit_object->userdata);
+
+				// Handle seat objects - completely separate from vehicles
+				if(ob->object_type == WorldObject::ObjectType_Seat)
+				{
+					// Note: Seats don't use vehicle controllers - they're stationary
+					// They just anchor the avatar's position
+					
+					if(vehicle_controller_inside.nonNull()) // If currently in a vehicle
+					{
+						showInfoNotification("Exit the vehicle first before sitting.");
+						return;
+					}
+					
+					if(current_seat_object.nonNull()) // Already sitting on a seat
+					{
+						showInfoNotification("Already sitting. Press E to stand up.");
+						return;
+					}
+					
+					// Sit down on seat
+					current_seat_object = ob;
+					player_physics.setSittingShape(*physics_world);
+
+					// Set the client avatar's entered_vehicle for proper anchoring
+					auto res = this->world_state->avatars.find(this->client_avatar_uid);
+					if(res != this->world_state->avatars.end())
+					{
+						Avatar* client_avatar = res->second.getPointer();
+						client_avatar->entered_vehicle = ob;
+						client_avatar->vehicle_seat_index = 0;
+						client_avatar->pending_vehicle_transition = Avatar::EnterVehicle;
+					}
+
+					// Send message to server (using vehicle protocol for avatar positioning)
+					MessageUtils::initPacket(scratch_packet, Protocol::AvatarEnteredVehicle);
+					writeToStream(this->client_avatar_uid, scratch_packet);
+					writeToStream(ob->uid, scratch_packet); // Write seat object UID
+					scratch_packet.writeUInt32(0); // Seat index (always 0 for basic seats)
+					scratch_packet.writeUInt32(0); // Write flags
+					enqueueMessageToSend(*this->client_thread, scratch_packet);
+					
+					showInfoNotification("Sat down. Press E again to stand up.");
+					return;
+				}
 
 				if(ob->vehicle_script.nonNull() && ob->physics_object.nonNull())
 				{
