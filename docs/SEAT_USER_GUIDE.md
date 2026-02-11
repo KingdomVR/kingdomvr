@@ -8,13 +8,20 @@ Seats are a new type of WorldObject (`ObjectType_Seat`) that users can sit on. T
 
 ### Creating a Seat
 
-1. **In the Editor:**
+**Method 1: Using the GUI Menu (Easiest)**
+1. Launch the application
+2. Go to **Edit** → **Add Seat**
+3. A seat will appear at ground level in front of you
+4. The seat is a transparent blue-gray cube (flat/squashed shape)
+5. You can then edit its position, rotation, and scale as needed
+
+**Method 2: In the Editor**
    - Create a new object
    - Set `object_type` to `"seat"` (or `ObjectType_Seat` in code)
    - Set scale to desired dimensions (e.g., `x=0.5, y=0.2, z=0.5` for a flat chair)
    - Position it where you want
 
-2. **In Code:**
+**Method 3: In Code**
    ```cpp
    WorldObjectRef seat = new WorldObject();
    seat->object_type = WorldObject::ObjectType_Seat;
