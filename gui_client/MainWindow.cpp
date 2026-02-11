@@ -1815,12 +1815,25 @@ void MainWindow::on_actionAdd_Seat_triggered()
 	new_world_object->pos = ob_pos;
 	new_world_object->axis = Vec3f(0, 0, 1);
 	new_world_object->angle = Maths::roundToMultipleFloating((float)gui_client.cam_controller.getAngles().x - Maths::pi_2<float>(), Maths::pi_4<float>()); // Round to nearest 45 degree angle, facing player
-	new_world_object->scale = Vec3f(0.5f, 0.2f, 0.5f); // Squashed cube - flat seat
+	new_world_object->scale = Vec3f(0.5f, 0.5f, 0.2f); // Squashed cube - flat seat (flat in Z axis)
+
+	// Add default XML script with seat configuration
+	new_world_object->content = 
+		"<?xml version=\"1.0\"?>\n"
+		"<root>\n"
+		"	<seat_settings>\n"
+		"		<seat_position>0 0 0.1</seat_position>\n"
+		"		<upper_leg_rot_angle>1.5708</upper_leg_rot_angle>\n"
+		"		<arm_down_angle>0.5</arm_down_angle>\n"
+		"		<arm_out_angle>0.1</arm_out_angle>\n"
+		"		<upper_leg_apart_angle>0.1</upper_leg_apart_angle>\n"
+		"	</seat_settings>\n"
+		"</root>";
 
 	// Initialize seat_data with default sitting pose
 	new_world_object->type_data.seat_data.seat_position[0] = 0.0f;
 	new_world_object->type_data.seat_data.seat_position[1] = 0.0f;
-	new_world_object->type_data.seat_data.seat_position[2] = 0.0f;
+	new_world_object->type_data.seat_data.seat_position[2] = 0.1f; // Slightly raised
 	new_world_object->type_data.seat_data.seat_position[3] = 1.0f;
 	
 	new_world_object->type_data.seat_data.upper_body_rot_angle = 0.0f; // Upright

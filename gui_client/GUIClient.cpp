@@ -15310,6 +15310,14 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 	{
 		WorldStateLock lock(world_state->mutex);
 		
+		// Clear the client avatar's entered_vehicle
+		Avatar* client_avatar = this->world_state->getAvatarForUID(this->client_avatar_uid);
+		if(client_avatar)
+		{
+			client_avatar->entered_vehicle = NULL;
+			client_avatar->pending_vehicle_transition = Avatar::ExitVehicle;
+		}
+		
 		// Stand up
 		player_physics.setStandingShape(*physics_world);
 		
@@ -15406,6 +15414,15 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 					// Sit down on seat
 					current_seat_object = ob;
 					player_physics.setSittingShape(*physics_world);
+
+					// Set the client avatar's entered_vehicle for proper anchoring
+					Avatar* client_avatar = this->world_state->getAvatarForUID(this->client_avatar_uid);
+					if(client_avatar)
+					{
+						client_avatar->entered_vehicle = ob;
+						client_avatar->vehicle_seat_index = 0;
+						client_avatar->pending_vehicle_transition = Avatar::EnterVehicle;
+					}
 
 					// Send message to server (using vehicle protocol for avatar positioning)
 					MessageUtils::initPacket(scratch_packet, Protocol::AvatarEnteredVehicle);
