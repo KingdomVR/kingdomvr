@@ -12580,6 +12580,7 @@ void GUIClient::clearAllObjects()
 	deselectObject();
 
 	vehicle_controller_inside = NULL;
+	current_seat_object = NULL; // Clear seat reference
 	vehicle_controllers.clear();
 
 
@@ -15304,6 +15305,29 @@ static bool keyIsDeleteKey(int keycode)
 // if use_mouse_cursor is false, use crosshair as cursor instead.
 void GUIClient::useActionTriggered(bool use_mouse_cursor)
 {
+	// If we are sitting in a seat (not a vehicle), stand up
+	if(current_seat_object.nonNull())
+	{
+		WorldStateLock lock(world_state->mutex);
+		
+		// Stand up
+		player_physics.setStandingShape(*physics_world);
+		
+		// Move player slightly away from seat
+		Vec4f new_player_pos = cam_controller.getFirstPersonPosition().toVec4fPoint() + Vec4f(0, 0, 0.5f, 0);
+		new_player_pos[2] = myMax(new_player_pos[2], 1.67f); // Make sure above ground
+		player_physics.setEyePosition(Vec3d(new_player_pos), /*linear vel=*/Vec4f(0,0,0,0));
+		
+		// Send exit message to server
+		MessageUtils::initPacket(scratch_packet, Protocol::AvatarExitedVehicle);
+		writeToStream(this->client_avatar_uid, scratch_packet);
+		enqueueMessageToSend(*this->client_thread, scratch_packet);
+		
+		current_seat_object = NULL;
+		showInfoNotification("Stood up.");
+		return;
+	}
+	
 	// If we are controlling a vehicle, exit it
 	if(vehicle_controller_inside.nonNull())
 	{
@@ -15361,42 +15385,37 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 			{
 				WorldObject* ob = static_cast<WorldObject*>(results.hit_object->userdata);
 
-				// Handle seat objects
+				// Handle seat objects - completely separate from vehicles
 				if(ob->object_type == WorldObject::ObjectType_Seat)
 				{
-					if(vehicle_controller_inside.nonNull()) // If currently in a vehicle, exit it first
+					// Note: Seats don't use vehicle controllers - they're stationary
+					// They just anchor the avatar's position
+					
+					if(vehicle_controller_inside.nonNull()) // If currently in a vehicle
 					{
-						// Exit vehicle logic (simplified - just like pressing E in a vehicle)
-						WorldObject* vehicle_ob = vehicle_controller_inside->getControlledObject();
-						
-						if(vehicle_ob->event_handlers)
-							vehicle_ob->event_handlers->executeOnUserExitedVehicleHandlers(this->client_avatar_uid, vehicle_ob->uid, lock);
-
-						vehicle_controller_inside = NULL;
-						
-						Vec4f new_player_pos = cam_controller.getFirstPersonPosition().toVec4fPoint() + Vec4f(0, 0, 1.7f, 0);
-						player_physics.setEyePosition(Vec3d(new_player_pos), /*linear vel=*/Vec4f(0,0,0,0));
-						player_physics.setStandingShape(*physics_world);
-
-						// Send exit message
-						MessageUtils::initPacket(scratch_packet, Protocol::AvatarExitedVehicle);
-						writeToStream(this->client_avatar_uid, scratch_packet);
-						enqueueMessageToSend(*this->client_thread, scratch_packet);
+						showInfoNotification("Exit the vehicle first before sitting.");
+						return;
 					}
-					else // Sit down on seat
+					
+					if(current_seat_object.nonNull()) // Already sitting on a seat
 					{
-						// For now, seats don't need a vehicle controller since they don't move
-						// We just set the sitting shape and send the message
-						player_physics.setSittingShape(*physics_world);
-
-						// Send message to server
-						MessageUtils::initPacket(scratch_packet, Protocol::AvatarEnteredVehicle);
-						writeToStream(this->client_avatar_uid, scratch_packet);
-						writeToStream(ob->uid, scratch_packet); // Write seat object UID
-						scratch_packet.writeUInt32(0); // Seat index (always 0 for basic seats)
-						scratch_packet.writeUInt32(0); // Write flags
-						enqueueMessageToSend(*this->client_thread, scratch_packet);
+						showInfoNotification("Already sitting. Press E to stand up.");
+						return;
 					}
+					
+					// Sit down on seat
+					current_seat_object = ob;
+					player_physics.setSittingShape(*physics_world);
+
+					// Send message to server (using vehicle protocol for avatar positioning)
+					MessageUtils::initPacket(scratch_packet, Protocol::AvatarEnteredVehicle);
+					writeToStream(this->client_avatar_uid, scratch_packet);
+					writeToStream(ob->uid, scratch_packet); // Write seat object UID
+					scratch_packet.writeUInt32(0); // Seat index (always 0 for basic seats)
+					scratch_packet.writeUInt32(0); // Write flags
+					enqueueMessageToSend(*this->client_thread, scratch_packet);
+					
+					showInfoNotification("Sat down. Press E again to stand up.");
 					return;
 				}
 

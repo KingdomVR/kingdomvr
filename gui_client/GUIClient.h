@@ -460,6 +460,7 @@ public:
 	std::map<WorldObject*, Reference<VehiclePhysics>> vehicle_controllers; // Map from controlled object to vehicle controller for that object.
 	Reference<VehiclePhysics> vehicle_controller_inside; // Vehicle controller that is controlling the vehicle the user is currently inside of.
 	uint32 cur_seat_index; // Current vehicle seat index.
+	WorldObjectRef current_seat_object; // Seat object the user is currently sitting in (nullptr if not sitting)
 
 	double last_vehicle_renewal_msg_time;
 

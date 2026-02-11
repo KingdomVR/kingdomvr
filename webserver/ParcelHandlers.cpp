@@ -143,7 +143,7 @@ void renderParcelPage(ServerAllWorldsState& world_state, const web::RequestInfo&
 
 			page += images_html;
 
-			// const Vec3d pos = parcel->getVisitPosition(); // Unused for now
+			const Vec3d pos = parcel->getVisitPosition();
 			
 			const std::string hostname = request.getHostHeader(); // Find the hostname the request was sent to
 
