@@ -408,6 +408,45 @@ void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_
 			}
 		}
 	}
+
+// ----------- static seat -----------
+{
+pugi::xml_node seat_elem = root_elem.child("seat");
+if(seat_elem && ob.nonNull() && ob->object_type == WorldObject::ObjectType_Seat)
+{
+// Parse seat settings and store them in the object's type_data
+SeatSettings default_seat_settings;
+SeatSettings seat_settings = parseSeatSettings(seat_elem, default_seat_settings);
+
+// Copy seat settings to object's type_data.seat_data
+ob->type_data.seat_data.seat_position[0] = seat_settings.seat_position.x;
+ob->type_data.seat_data.seat_position[1] = seat_settings.seat_position.y;
+ob->type_data.seat_data.seat_position[2] = seat_settings.seat_position.z;
+ob->type_data.seat_data.seat_position[3] = seat_settings.seat_position.w;
+
+ob->type_data.seat_data.upper_body_rot_angle = seat_settings.upper_body_rot_angle;
+ob->type_data.seat_data.upper_leg_rot_angle = seat_settings.upper_leg_rot_angle;
+ob->type_data.seat_data.upper_leg_rot_around_thigh_bone_angle = seat_settings.upper_leg_rot_around_thigh_bone_angle;
+ob->type_data.seat_data.upper_leg_apart_angle = seat_settings.upper_leg_apart_angle;
+ob->type_data.seat_data.lower_leg_rot_angle = seat_settings.lower_leg_rot_angle;
+ob->type_data.seat_data.lower_leg_apart_angle = seat_settings.lower_leg_apart_angle;
+ob->type_data.seat_data.rotate_foot_out_angle = seat_settings.rotate_foot_out_angle;
+ob->type_data.seat_data.arm_down_angle = seat_settings.arm_down_angle;
+ob->type_data.seat_data.arm_out_angle = seat_settings.arm_out_angle;
+ob->type_data.seat_data.upper_arm_shoulder_lift_angle = seat_settings.upper_arm_shoulder_lift_angle;
+ob->type_data.seat_data.lower_arm_up_angle = seat_settings.lower_arm_up_angle;
+
+ob->type_data.seat_data.left_hand_hold_point_os[0] = seat_settings.left_hand_hold_point_os.x;
+ob->type_data.seat_data.left_hand_hold_point_os[1] = seat_settings.left_hand_hold_point_os.y;
+ob->type_data.seat_data.left_hand_hold_point_os[2] = seat_settings.left_hand_hold_point_os.z;
+ob->type_data.seat_data.left_hand_hold_point_os[3] = seat_settings.left_hand_hold_point_os.w;
+
+ob->type_data.seat_data.right_hand_hold_point_os[0] = seat_settings.right_hand_hold_point_os.x;
+ob->type_data.seat_data.right_hand_hold_point_os[1] = seat_settings.right_hand_hold_point_os.y;
+ob->type_data.seat_data.right_hand_hold_point_os[2] = seat_settings.right_hand_hold_point_os.z;
+ob->type_data.seat_data.right_hand_hold_point_os[3] = seat_settings.right_hand_hold_point_os.w;
+}
+}
 	catch(glare::Exception& e)
 	{
 		throw e;

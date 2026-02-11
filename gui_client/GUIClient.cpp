@@ -7819,6 +7819,55 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 								}
 							}
 						}
+else if(current_seat_object.nonNull() && current_seat_object->object_type == WorldObject::ObjectType_Seat)
+{
+// Handle static seat anchoring (no vehicle controller)
+const Matrix4f ob_to_world = obToWorldMatrix(*current_seat_object);
+
+pose_constraint.sitting = true;
+
+// Seat position in world space
+const Vec4f seat_pos_os(
+current_seat_object->type_data.seat_data.seat_position[0],
+current_seat_object->type_data.seat_data.seat_position[1],
+current_seat_object->type_data.seat_data.seat_position[2],
+current_seat_object->type_data.seat_data.seat_position[3]
+);
+pose_constraint.seat_to_world = ob_to_world * Matrix4f::translationMatrix(seat_pos_os);
+
+// Seats don't have model rotation transforms (they're upright)
+pose_constraint.model_to_y_forwards_rot_1 = Quatf::identity();
+pose_constraint.model_to_y_forwards_rot_2 = Quatf::identity();
+
+// Copy pose angles from seat data
+pose_constraint.upper_body_rot_angle = current_seat_object->type_data.seat_data.upper_body_rot_angle;
+pose_constraint.upper_leg_rot_angle = current_seat_object->type_data.seat_data.upper_leg_rot_angle;
+pose_constraint.upper_leg_rot_around_thigh_bone_angle = current_seat_object->type_data.seat_data.upper_leg_rot_around_thigh_bone_angle;
+pose_constraint.upper_leg_apart_angle = current_seat_object->type_data.seat_data.upper_leg_apart_angle;
+pose_constraint.lower_leg_rot_angle = current_seat_object->type_data.seat_data.lower_leg_rot_angle;
+pose_constraint.lower_leg_apart_angle = current_seat_object->type_data.seat_data.lower_leg_apart_angle;
+pose_constraint.rotate_foot_out_angle = current_seat_object->type_data.seat_data.rotate_foot_out_angle;
+pose_constraint.arm_down_angle = current_seat_object->type_data.seat_data.arm_down_angle;
+pose_constraint.arm_out_angle = current_seat_object->type_data.seat_data.arm_out_angle;
+pose_constraint.upper_arm_shoulder_lift_angle = current_seat_object->type_data.seat_data.upper_arm_shoulder_lift_angle;
+pose_constraint.lower_arm_up_angle = current_seat_object->type_data.seat_data.lower_arm_up_angle;
+
+// Hand hold points in world space
+const Vec4f left_hand_os(
+current_seat_object->type_data.seat_data.left_hand_hold_point_os[0],
+current_seat_object->type_data.seat_data.left_hand_hold_point_os[1],
+current_seat_object->type_data.seat_data.left_hand_hold_point_os[2],
+current_seat_object->type_data.seat_data.left_hand_hold_point_os[3]
+);
+const Vec4f right_hand_os(
+current_seat_object->type_data.seat_data.right_hand_hold_point_os[0],
+current_seat_object->type_data.seat_data.right_hand_hold_point_os[1],
+current_seat_object->type_data.seat_data.right_hand_hold_point_os[2],
+current_seat_object->type_data.seat_data.right_hand_hold_point_os[3]
+);
+pose_constraint.left_hand_hold_point_ws = ob_to_world * left_hand_os;
+pose_constraint.right_hand_hold_point_ws = ob_to_world * right_hand_os;
+}
 						else
 						{
 							if(avatar->pending_vehicle_transition == Avatar::EnterVehicle)
@@ -7894,6 +7943,55 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 										assert(0); // Seat index was invalid.
 									}
 								}
+else if(avatar->entered_vehicle.nonNull() && avatar->entered_vehicle->object_type == WorldObject::ObjectType_Seat)
+{
+// Handle static seat anchoring for other avatars (no vehicle controller)
+const Matrix4f ob_to_world = obToWorldMatrix(*avatar->entered_vehicle);
+
+pose_constraint.sitting = true;
+
+// Seat position in world space
+const Vec4f seat_pos_os(
+avatar->entered_vehicle->type_data.seat_data.seat_position[0],
+avatar->entered_vehicle->type_data.seat_data.seat_position[1],
+avatar->entered_vehicle->type_data.seat_data.seat_position[2],
+avatar->entered_vehicle->type_data.seat_data.seat_position[3]
+);
+pose_constraint.seat_to_world = ob_to_world * Matrix4f::translationMatrix(seat_pos_os);
+
+// Seats don't have model rotation transforms (they're upright)
+pose_constraint.model_to_y_forwards_rot_1 = Quatf::identity();
+pose_constraint.model_to_y_forwards_rot_2 = Quatf::identity();
+
+// Copy pose angles from seat data
+pose_constraint.upper_body_rot_angle = avatar->entered_vehicle->type_data.seat_data.upper_body_rot_angle;
+pose_constraint.upper_leg_rot_angle = avatar->entered_vehicle->type_data.seat_data.upper_leg_rot_angle;
+pose_constraint.upper_leg_rot_around_thigh_bone_angle = avatar->entered_vehicle->type_data.seat_data.upper_leg_rot_around_thigh_bone_angle;
+pose_constraint.upper_leg_apart_angle = avatar->entered_vehicle->type_data.seat_data.upper_leg_apart_angle;
+pose_constraint.lower_leg_rot_angle = avatar->entered_vehicle->type_data.seat_data.lower_leg_rot_angle;
+pose_constraint.lower_leg_apart_angle = avatar->entered_vehicle->type_data.seat_data.lower_leg_apart_angle;
+pose_constraint.rotate_foot_out_angle = avatar->entered_vehicle->type_data.seat_data.rotate_foot_out_angle;
+pose_constraint.arm_down_angle = avatar->entered_vehicle->type_data.seat_data.arm_down_angle;
+pose_constraint.arm_out_angle = avatar->entered_vehicle->type_data.seat_data.arm_out_angle;
+pose_constraint.upper_arm_shoulder_lift_angle = avatar->entered_vehicle->type_data.seat_data.upper_arm_shoulder_lift_angle;
+pose_constraint.lower_arm_up_angle = avatar->entered_vehicle->type_data.seat_data.lower_arm_up_angle;
+
+// Hand hold points in world space
+const Vec4f left_hand_os(
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[0],
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[1],
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[2],
+avatar->entered_vehicle->type_data.seat_data.left_hand_hold_point_os[3]
+);
+const Vec4f right_hand_os(
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[0],
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[1],
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[2],
+avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[3]
+);
+pose_constraint.left_hand_hold_point_ws = ob_to_world * left_hand_os;
+pose_constraint.right_hand_hold_point_ws = ob_to_world * right_hand_os;
+}
 
 
 								if(avatar->pending_vehicle_transition == Avatar::ExitVehicle)
