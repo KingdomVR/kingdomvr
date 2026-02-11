@@ -7821,7 +7821,12 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 							else if(current_seat_object.nonNull() && current_seat_object->object_type == WorldObject::ObjectType_Seat)
 							{
 								// Handle static seat anchoring (no vehicle controller)
-								const Matrix4f ob_to_world = obToWorldMatrix(*current_seat_object);
+								// Use NoScale transform to avoid applying seat's scale (0.5, 0.5, 0.2) to avatar
+								Matrix4f ob_to_world_no_scale;
+								if(current_seat_object->physics_object.nonNull())
+									ob_to_world_no_scale = current_seat_object->physics_object->getSmoothedObToWorldNoScaleMatrix();
+								else
+									ob_to_world_no_scale = obToWorldMatrix(*current_seat_object); // Fallback if no physics object
 								
 								pose_constraint.sitting = true;
 								
@@ -7832,7 +7837,7 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 									current_seat_object->type_data.seat_data.seat_position[2],
 									current_seat_object->type_data.seat_data.seat_position[3]
 								);
-								pose_constraint.seat_to_world = ob_to_world * Matrix4f::translationMatrix(seat_pos_os);
+								pose_constraint.seat_to_world = ob_to_world_no_scale * Matrix4f::translationMatrix(seat_pos_os);
 								
 								// Seats don't have model rotation transforms (they're upright)
 								pose_constraint.model_to_y_forwards_rot_1 = Quatf::identity();
@@ -7864,8 +7869,8 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 									current_seat_object->type_data.seat_data.right_hand_hold_point_os[2],
 									current_seat_object->type_data.seat_data.right_hand_hold_point_os[3]
 								);
-								pose_constraint.left_hand_hold_point_ws = ob_to_world * left_hand_os;
-								pose_constraint.right_hand_hold_point_ws = ob_to_world * right_hand_os;
+								pose_constraint.left_hand_hold_point_ws = ob_to_world_no_scale * left_hand_os;
+								pose_constraint.right_hand_hold_point_ws = ob_to_world_no_scale * right_hand_os;
 							}
 						}
 						else
@@ -7946,7 +7951,12 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 else if(avatar->entered_vehicle.nonNull() && avatar->entered_vehicle->object_type == WorldObject::ObjectType_Seat)
 {
 // Handle static seat anchoring for other avatars (no vehicle controller)
-const Matrix4f ob_to_world = obToWorldMatrix(*avatar->entered_vehicle);
+// Use NoScale transform to avoid applying seat's scale (0.5, 0.5, 0.2) to avatar
+Matrix4f ob_to_world_no_scale;
+if(avatar->entered_vehicle->physics_object.nonNull())
+ob_to_world_no_scale = avatar->entered_vehicle->physics_object->getSmoothedObToWorldNoScaleMatrix();
+else
+ob_to_world_no_scale = obToWorldMatrix(*avatar->entered_vehicle); // Fallback if no physics object
 
 pose_constraint.sitting = true;
 
@@ -7957,7 +7967,7 @@ avatar->entered_vehicle->type_data.seat_data.seat_position[1],
 avatar->entered_vehicle->type_data.seat_data.seat_position[2],
 avatar->entered_vehicle->type_data.seat_data.seat_position[3]
 );
-pose_constraint.seat_to_world = ob_to_world * Matrix4f::translationMatrix(seat_pos_os);
+pose_constraint.seat_to_world = ob_to_world_no_scale * Matrix4f::translationMatrix(seat_pos_os);
 
 // Seats don't have model rotation transforms (they're upright)
 pose_constraint.model_to_y_forwards_rot_1 = Quatf::identity();
@@ -7989,8 +7999,8 @@ avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[1],
 avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[2],
 avatar->entered_vehicle->type_data.seat_data.right_hand_hold_point_os[3]
 );
-pose_constraint.left_hand_hold_point_ws = ob_to_world * left_hand_os;
-pose_constraint.right_hand_hold_point_ws = ob_to_world * right_hand_os;
+pose_constraint.left_hand_hold_point_ws = ob_to_world_no_scale * left_hand_os;
+pose_constraint.right_hand_hold_point_ws = ob_to_world_no_scale * right_hand_os;
 }
 
 
