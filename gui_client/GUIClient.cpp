@@ -15364,13 +15364,29 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 				// Handle seat objects
 				if(ob->object_type == WorldObject::ObjectType_Seat)
 				{
-					if(player_physics.getControllingObject().nonNull()) // If currently sitting/in vehicle, get out
+					if(vehicle_controller_inside.nonNull()) // If currently in a vehicle, exit it first
 					{
-						player_physics.exitVehicle(*physics_world);
+						// Exit vehicle logic (simplified - just like pressing E in a vehicle)
+						WorldObject* vehicle_ob = vehicle_controller_inside->getControlledObject();
+						
+						if(vehicle_ob->event_handlers)
+							vehicle_ob->event_handlers->executeOnUserExitedVehicleHandlers(this->client_avatar_uid, vehicle_ob->uid, lock);
+
+						vehicle_controller_inside = NULL;
+						
+						Vec4f new_player_pos = cam_controller.getFirstPersonPosition().toVec4fPoint() + Vec4f(0, 0, 1.7f, 0);
+						player_physics.setEyePosition(Vec3d(new_player_pos), /*linear vel=*/Vec4f(0,0,0,0));
+						player_physics.setStandingShape(*physics_world);
+
+						// Send exit message
+						MessageUtils::initPacket(scratch_packet, Protocol::AvatarExitedVehicle);
+						writeToStream(this->client_avatar_uid, scratch_packet);
+						enqueueMessageToSend(*this->client_thread, scratch_packet);
 					}
-					else // Else sit down on seat
+					else // Sit down on seat
 					{
-						player_physics.enterVehicle(ob, /*seat_index=*/0, *physics_world);
+						// For now, seats don't need a vehicle controller since they don't move
+						// We just set the sitting shape and send the message
 						player_physics.setSittingShape(*physics_world);
 
 						// Send message to server

@@ -21,8 +21,11 @@ Seats are a new type of WorldObject (`ObjectType_Seat`) that users can sit on. T
    seat->pos = Vec3d(10, 0, 5);
    seat->scale = Vec3f(0.5f, 0.2f, 0.5f); // Width, Height, Depth
    
-   // Optional: Configure sitting pose
-   seat->type_data.seat_data.seat_position = Vec4f(0, 0, 0, 1);
+   // Optional: Configure sitting pose (using float arrays)
+   seat->type_data.seat_data.seat_position[0] = 0.0f;
+   seat->type_data.seat_data.seat_position[1] = 0.0f;
+   seat->type_data.seat_data.seat_position[2] = 0.0f;
+   seat->type_data.seat_data.seat_position[3] = 1.0f;
    seat->type_data.seat_data.upper_leg_rot_angle = 1.5708f; // 90 degrees
    ```
 
@@ -67,7 +70,7 @@ All angles are in **radians** (π radians = 180 degrees, π/2 radians = 90 degre
 
 | Field | Type | Description | Typical Value |
 |-------|------|-------------|---------------|
-| `seat_position` | Vec4f | Where avatar sits (object space) | `(0, 0, 0, 1)` |
+| `seat_position` | float[4] | Where avatar sits (object space) | `(0, 0, 0, 1)` |
 | `upper_body_rot_angle` | float | Torso lean (forward/back) | `0.0` (upright) |
 | `upper_leg_rot_angle` | float | Thigh rotation | `1.5708` (90° sitting) |
 | `upper_leg_rot_around_thigh_bone_angle` | float | Thigh twist | `0.0` |
@@ -79,22 +82,28 @@ All angles are in **radians** (π radians = 180 degrees, π/2 radians = 90 degre
 | `arm_out_angle` | float | Arms away from body | `0.1` |
 | `upper_arm_shoulder_lift_angle` | float | Shoulder raise | `0.0` |
 | `lower_arm_up_angle` | float | Elbow bend | `0.0` |
-| `left_hand_hold_point_os` | Vec4f | Left hand IK target | `(0, 0, 0, 1)` |
-| `right_hand_hold_point_os` | Vec4f | Right hand IK target | `(0, 0, 0, 1)` |
+| `left_hand_hold_point_os` | float[4] | Left hand IK target | `(0, 0, 0, 1)` |
+| `right_hand_hold_point_os` | float[4] | Right hand IK target | `(0, 0, 0, 1)` |
 
 ## Examples
 
 ### Simple Chair
 ```cpp
 seat->scale = Vec3f(0.5f, 0.5f, 0.5f);
-seat->type_data.seat_data.seat_position = Vec4f(0, 0.25f, 0, 1); // Raised a bit
+seat->type_data.seat_data.seat_position[0] = 0.0f;
+seat->type_data.seat_data.seat_position[1] = 0.25f; // Raised a bit
+seat->type_data.seat_data.seat_position[2] = 0.0f;
+seat->type_data.seat_data.seat_position[3] = 1.0f;
 seat->type_data.seat_data.upper_leg_rot_angle = 1.5708f;
 ```
 
 ### Park Bench
 ```cpp
 seat->scale = Vec3f(2.0f, 0.3f, 0.6f); // Long, slightly thick
-seat->type_data.seat_data.seat_position = Vec4f(0, 0, 0, 1);
+seat->type_data.seat_data.seat_position[0] = 0.0f;
+seat->type_data.seat_data.seat_position[1] = 0.0f;
+seat->type_data.seat_data.seat_position[2] = 0.0f;
+seat->type_data.seat_data.seat_position[3] = 1.0f;
 seat->type_data.seat_data.upper_leg_rot_angle = 1.5708f;
 seat->type_data.seat_data.arm_down_angle = 0.3f; // Arms more relaxed
 ```
@@ -102,18 +111,30 @@ seat->type_data.seat_data.arm_down_angle = 0.3f; // Arms more relaxed
 ### Gaming Chair (with armrests)
 ```cpp
 seat->scale = Vec3f(0.6f, 0.6f, 0.6f);
-seat->type_data.seat_data.seat_position = Vec4f(0, 0.2f, 0, 1);
+seat->type_data.seat_data.seat_position[0] = 0.0f;
+seat->type_data.seat_data.seat_position[1] = 0.2f;
+seat->type_data.seat_data.seat_position[2] = 0.0f;
+seat->type_data.seat_data.seat_position[3] = 1.0f;
 seat->type_data.seat_data.upper_leg_rot_angle = 1.5708f;
 seat->type_data.seat_data.arm_down_angle = 1.2f; // Arms on armrests
 seat->type_data.seat_data.lower_arm_up_angle = 1.3f; // Forearms bent
-seat->type_data.seat_data.left_hand_hold_point_os = Vec4f(-0.25f, 0.1f, 0, 1);
-seat->type_data.seat_data.right_hand_hold_point_os = Vec4f(0.25f, 0.1f, 0, 1);
+seat->type_data.seat_data.left_hand_hold_point_os[0] = -0.25f;
+seat->type_data.seat_data.left_hand_hold_point_os[1] = 0.1f;
+seat->type_data.seat_data.left_hand_hold_point_os[2] = 0.0f;
+seat->type_data.seat_data.left_hand_hold_point_os[3] = 1.0f;
+seat->type_data.seat_data.right_hand_hold_point_os[0] = 0.25f;
+seat->type_data.seat_data.right_hand_hold_point_os[1] = 0.1f;
+seat->type_data.seat_data.right_hand_hold_point_os[2] = 0.0f;
+seat->type_data.seat_data.right_hand_hold_point_os[3] = 1.0f;
 ```
 
 ### Meditation Cushion
 ```cpp
 seat->scale = Vec3f(0.6f, 0.08f, 0.6f); // Very flat
-seat->type_data.seat_data.seat_position = Vec4f(0, 0.04f, 0, 1); // Very low
+seat->type_data.seat_data.seat_position[0] = 0.0f;
+seat->type_data.seat_data.seat_position[1] = 0.04f; // Very low
+seat->type_data.seat_data.seat_position[2] = 0.0f;
+seat->type_data.seat_data.seat_position[3] = 1.0f;
 seat->type_data.seat_data.upper_leg_rot_angle = 2.1f; // Legs crossed
 seat->type_data.seat_data.upper_leg_apart_angle = 0.6f; // Legs wide apart
 seat->type_data.seat_data.upper_body_rot_angle = 0.0f; // Upright/meditative

@@ -365,7 +365,7 @@ public:
 
 	struct SeatTypeData
 	{
-		Vec4f seat_position; // Position in model/object space where avatar sits
+		float seat_position[4]; // Position in model/object space where avatar sits (x, y, z, w)
 		float upper_body_rot_angle; // radians
 		float upper_leg_rot_angle; // radians
 		float upper_leg_rot_around_thigh_bone_angle;
@@ -377,8 +377,8 @@ public:
 		float arm_out_angle; // radians
 		float upper_arm_shoulder_lift_angle;
 		float lower_arm_up_angle; // radians
-		Vec4f left_hand_hold_point_os;
-		Vec4f right_hand_hold_point_os;
+		float left_hand_hold_point_os[4]; // (x, y, z, w)
+		float right_hand_hold_point_os[4]; // (x, y, z, w)
 	};
 
 	union TypeData

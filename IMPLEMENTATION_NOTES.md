@@ -15,14 +15,16 @@ Added to WorldObject.h:
 ```cpp
 struct SeatTypeData
 {
-    Vec4f seat_position;  // Where avatar sits in object space
+    float seat_position[4];  // Where avatar sits in object space (x, y, z, w)
     float upper_body_rot_angle;
     float upper_leg_rot_angle;  // ~1.57 rad (90°) for sitting
     // ... other pose angles
-    Vec4f left_hand_hold_point_os;
-    Vec4f right_hand_hold_point_os;
+    float left_hand_hold_point_os[4];  // (x, y, z, w)
+    float right_hand_hold_point_os[4]; // (x, y, z, w)
 };
 ```
+
+**Note:** Uses float arrays instead of Vec4f to maintain POD (Plain Old Data) compatibility required for union members.
 
 Added to `TypeData` union:
 ```cpp
@@ -43,7 +45,7 @@ Seats are rendered when `object_type == ObjectType_Seat`:
 ### 4. Interaction
 When user presses 'E' on a seat:
 - Toggles sit/stand state
-- Uses `player_physics.enterVehicle()` / `exitVehicle()`
+- Uses `vehicle_controller_inside` pattern (not vehicle controller for seats)
 - Sends `AvatarEnteredVehicle` message to server
 - Shows "Press [E] to sit" UI message
 
@@ -56,8 +58,11 @@ seat->object_type = WorldObject::ObjectType_Seat;
 seat->pos = Vec3d(10, 0, 5);
 seat->scale = Vec3f(0.5f, 0.2f, 0.5f); // Squashed cube (flat seat)
 
-// Configure pose
-seat->type_data.seat_data.seat_position = Vec4f(0, 0, 0, 1);
+// Configure pose (using float arrays now)
+seat->type_data.seat_data.seat_position[0] = 0.0f;
+seat->type_data.seat_data.seat_position[1] = 0.0f;
+seat->type_data.seat_data.seat_position[2] = 0.0f;
+seat->type_data.seat_data.seat_position[3] = 1.0f;
 seat->type_data.seat_data.upper_leg_rot_angle = 1.5708f; // 90° sitting
 ```
 
