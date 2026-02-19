@@ -197,6 +197,24 @@ public:
 };
 
 
+// Standalone seat script - for objects that are just seats, not vehicles
+struct SeatScriptSettings : public RefCounted
+{
+	GLARE_ALIGNED_16_NEW_DELETE
+
+	SeatSettings seat_settings; // Single seat configuration
+};
+
+
+class SeatScript : public RefCounted
+{
+public:
+	GLARE_ALIGNED_16_NEW_DELETE
+
+	Reference<SeatScriptSettings> settings;
+};
+
+
 struct WinterScriptEvalOutput
 {
 	Matrix4f ob_to_world;
@@ -234,7 +252,7 @@ public:
 };
 
 
-void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_time, Reference<ObjectPathController>& path_controller_out, Reference<VehicleScript>& vehicle_script_out);
+void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_time, Reference<ObjectPathController>& path_controller_out, Reference<VehicleScript>& vehicle_script_out, Reference<SeatScript>& seat_script_out);
 
 
 } // end namespace Scripting

@@ -40,6 +40,7 @@ namespace glare { class AudioSource; }
 namespace glare { class FastPoolAllocator; }
 namespace glare { class ArenaAllocator; }
 namespace Scripting { class VehicleScript; }
+namespace Scripting { class SeatScript; }
 class ResourceManager;
 class WinterShaderEvaluator;
 class LuaScriptEvaluator;
@@ -466,6 +467,7 @@ public:
 	Reference<WinterShaderEvaluator> script_evaluator; // Winter script evaluator
 
 	Reference<Scripting::VehicleScript> vehicle_script;
+	Reference<Scripting::SeatScript> seat_script;
 
 	//js::Vector<Matrix4f, 16> instance_matrices;
 

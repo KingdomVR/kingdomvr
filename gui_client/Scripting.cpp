@@ -135,7 +135,7 @@ static SeatSettings parseSeatSettings(pugi::xml_node seat_elem, const SeatSettin
 }
 
 
-void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_time, Reference<ObjectPathController>& path_controller_out, Reference<VehicleScript>& vehicle_script_out)
+void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_time, Reference<ObjectPathController>& path_controller_out, Reference<VehicleScript>& vehicle_script_out, Reference<SeatScript>& seat_script_out)
 {
 	try
 	{
@@ -405,6 +405,21 @@ void parseXMLScript(WorldObjectRef ob, const std::string& script, double global_
 					throw glare::Exception("car element must have at least one seat element");
 
 				vehicle_script_out = car_script;
+			}
+		}
+
+		// ----------- standalone seat -----------
+		{
+			pugi::xml_node seat_elem = root_elem.child("seat");
+			if(seat_elem)
+			{
+				Reference<SeatScript> seat_script = new SeatScript();
+				seat_script->settings = new SeatScriptSettings();
+
+				SeatSettings default_seat_settings;
+				seat_script->settings->seat_settings = parseSeatSettings(seat_elem, default_seat_settings);
+
+				seat_script_out = seat_script;
 			}
 		}
 	}

@@ -286,7 +286,8 @@ void ShaderEditorDialog::buildCodeAndShowResults()
 		{
 			Reference<ObjectPathController> path_controller;
 			Reference<Scripting::VehicleScript> vehicle_script;
-			Scripting::parseXMLScript(NULL, shader, 0.0, path_controller, vehicle_script);
+			Reference<Scripting::SeatScript> seat_script;
+			Scripting::parseXMLScript(NULL, shader, 0.0, path_controller, vehicle_script, seat_script);
 
 
 			this->buildOutputTextEdit->setPlainText("XML script built successfully.");

@@ -3184,7 +3184,8 @@ void GUIClient::loadScriptForObject(WorldObject* ob, WorldStateLock& world_state
 
 			Reference<ObjectPathController> path_controller;
 			Reference<Scripting::VehicleScript> vehicle_script;
-			Scripting::parseXMLScript(ob, ob->script, global_time, path_controller, vehicle_script);
+			Reference<Scripting::SeatScript> seat_script;
+			Scripting::parseXMLScript(ob, ob->script, global_time, path_controller, vehicle_script, seat_script);
 
 			if(path_controller.nonNull())
 			{
@@ -3203,6 +3204,11 @@ void GUIClient::loadScriptForObject(WorldObject* ob, WorldStateLock& world_state
 			{
 				ob->vehicle_script = vehicle_script;
 				// conPrint("Added hover car script to object");
+			}
+
+			if(seat_script.nonNull())
+			{
+				ob->seat_script = seat_script;
 			}
 
 			if(ob == selected_ob.ptr())
@@ -7748,7 +7754,32 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 						pose_constraint.sitting = false;
 						if(our_avatar)
 						{
-							if(vehicle_controller_inside.nonNull())
+							// Handle standalone seat objects for the player's own avatar
+							if(vehicle_controller_inside.isNull() && cam_controller.nonNull() && cam_controller->avatar->entered_vehicle.nonNull() && cam_controller->avatar->entered_vehicle->seat_script.nonNull())
+							{
+								WorldObject* seat_ob = cam_controller->avatar->entered_vehicle.ptr();
+								const Matrix4f ob_to_world = obToWorldMatrix(*seat_ob);
+								const Scripting::SeatSettings& seat_settings = seat_ob->seat_script->settings->seat_settings;
+								
+								pose_constraint.sitting = true;
+								pose_constraint.seat_to_world							= ob_to_world * Matrix4f::translationMatrix(seat_settings.seat_position);
+								pose_constraint.model_to_y_forwards_rot_1				= Quatf::identity();
+								pose_constraint.model_to_y_forwards_rot_2				= Quatf::identity();
+								pose_constraint.upper_body_rot_angle					= seat_settings.upper_body_rot_angle;
+								pose_constraint.upper_leg_rot_angle						= seat_settings.upper_leg_rot_angle;
+								pose_constraint.upper_leg_rot_around_thigh_bone_angle	= seat_settings.upper_leg_rot_around_thigh_bone_angle;
+								pose_constraint.upper_leg_apart_angle					= seat_settings.upper_leg_apart_angle;
+								pose_constraint.lower_leg_rot_angle						= seat_settings.lower_leg_rot_angle;
+								pose_constraint.lower_leg_apart_angle					= seat_settings.lower_leg_apart_angle;
+								pose_constraint.rotate_foot_out_angle					= seat_settings.rotate_foot_out_angle;
+								pose_constraint.arm_down_angle							= seat_settings.arm_down_angle;
+								pose_constraint.arm_out_angle							= seat_settings.arm_out_angle;
+								pose_constraint.upper_arm_shoulder_lift_angle			= seat_settings.upper_arm_shoulder_lift_angle;
+								pose_constraint.lower_arm_up_angle						= seat_settings.lower_arm_up_angle;
+								pose_constraint.left_hand_hold_point_ws					= ob_to_world * seat_settings.left_hand_hold_point_os;
+								pose_constraint.right_hand_hold_point_ws				= ob_to_world * seat_settings.right_hand_hold_point_os;
+							}
+							else if(vehicle_controller_inside.nonNull())
 							{
 								if(cur_seat_index < vehicle_controller_inside->getSettings().seat_settings.size())
 								{
@@ -7779,9 +7810,33 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 								}
 							}
 						}
-						else
+						else // Not the player's own avatar
 						{
-							if(avatar->pending_vehicle_transition == Avatar::EnterVehicle)
+							// Handle standalone seat objects for other avatars
+							if(avatar->entered_vehicle.nonNull() && avatar->entered_vehicle->seat_script.nonNull())
+							{
+								const Matrix4f ob_to_world = obToWorldMatrix(*avatar->entered_vehicle);
+								const Scripting::SeatSettings& seat_settings = avatar->entered_vehicle->seat_script->settings->seat_settings;
+								
+								pose_constraint.sitting = true;
+								pose_constraint.seat_to_world							= ob_to_world * Matrix4f::translationMatrix(seat_settings.seat_position);
+								pose_constraint.model_to_y_forwards_rot_1				= Quatf::identity();
+								pose_constraint.model_to_y_forwards_rot_2				= Quatf::identity();
+								pose_constraint.upper_body_rot_angle					= seat_settings.upper_body_rot_angle;
+								pose_constraint.upper_leg_rot_angle						= seat_settings.upper_leg_rot_angle;
+								pose_constraint.upper_leg_rot_around_thigh_bone_angle	= seat_settings.upper_leg_rot_around_thigh_bone_angle;
+								pose_constraint.upper_leg_apart_angle					= seat_settings.upper_leg_apart_angle;
+								pose_constraint.lower_leg_rot_angle						= seat_settings.lower_leg_rot_angle;
+								pose_constraint.lower_leg_apart_angle					= seat_settings.lower_leg_apart_angle;
+								pose_constraint.rotate_foot_out_angle					= seat_settings.rotate_foot_out_angle;
+								pose_constraint.arm_down_angle							= seat_settings.arm_down_angle;
+								pose_constraint.arm_out_angle							= seat_settings.arm_out_angle;
+								pose_constraint.upper_arm_shoulder_lift_angle			= seat_settings.upper_arm_shoulder_lift_angle;
+								pose_constraint.lower_arm_up_angle						= seat_settings.lower_arm_up_angle;
+								pose_constraint.left_hand_hold_point_ws					= ob_to_world * seat_settings.left_hand_hold_point_os;
+								pose_constraint.right_hand_hold_point_ws				= ob_to_world * seat_settings.right_hand_hold_point_os;
+							}
+							else if(avatar->pending_vehicle_transition == Avatar::EnterVehicle)
 							{
 								assert(avatar->entered_vehicle.nonNull());
 								if(avatar->entered_vehicle.nonNull()) // If the other avatar is, or should be in a vehicle:
@@ -13953,6 +14008,12 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 						show_mouseover_info_ui = true;
 					}
 
+					if(ob->seat_script.nonNull() && vehicle_controller_inside.isNull()) // If this is a standalone seat, and we are not already in a vehicle:
+					{
+						ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to sit" : "Press [A] on gamepad to sit", cursor_gl_coords);
+						show_mouseover_info_ui = true;
+					}
+
 					if(ob->event_handlers && ob->event_handlers->onUserUsedObject_handlers.nonEmpty())
 					{
 						ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to use" : "Press [A] on gamepad to use", cursor_gl_coords);
@@ -15437,6 +15498,50 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 					else // else if !ob->isDyanmic():
 					{
 						showErrorNotification("Object dynamic checkbox must be checked to drive");
+					}
+				}
+
+				// Handle standalone seat objects
+				if(ob->seat_script.nonNull())
+				{
+					if(vehicle_controller_inside.isNull()) // If we are not in a vehicle already:
+					{
+						// Sit on the seat
+						this->cur_seat_index = 0; // Standalone seats only have one seat at index 0
+						
+						// We don't create a vehicle controller for seats, just mark that we're sitting
+						// by setting vehicle_controller_inside to null but cur_seat_index to 0.
+						// The avatar graphics code will use the seat_script to apply the pose.
+						
+						player_physics.setSittingShape(*physics_world);
+
+						// Store reference to the seat object we're sitting on
+						if(this->cam_controller.nonNull())
+						{
+							this->cam_controller->avatar->entered_vehicle = ob;
+							this->cam_controller->avatar->vehicle_seat_index = 0;
+						}
+
+						// Execute event handlers in any scripts that are listening for the onUserUsedObject event from this object.
+						if(ob->event_handlers && ob->event_handlers->onUserUsedObject_handlers.nonEmpty())
+						{
+							ob->event_handlers->executeOnUserUsedObjectHandlers(this->client_avatar_uid, ob->uid, lock);
+							
+							// Make message packet and enqueue to send to execute event handler on server as well
+							MessageUtils::initPacket(scratch_packet, Protocol::UserUsedObjectMessage);
+							writeToStream(ob->uid, scratch_packet);
+							enqueueMessageToSend(*client_thread, scratch_packet);
+						}
+
+						// Send AvatarEnteredVehicle message to server (we reuse this message for seats)
+						MessageUtils::initPacket(scratch_packet, Protocol::AvatarEnteredVehicle);
+						writeToStream(this->client_avatar_uid, scratch_packet);
+						writeToStream(ob->uid, scratch_packet); // Write seat object UID
+						scratch_packet.writeUInt32(0); // Seat index (always 0 for standalone seats)
+						scratch_packet.writeUInt32(0); // Write flags
+						enqueueMessageToSend(*this->client_thread, scratch_packet);
+
+						return;
 					}
 				}
 
