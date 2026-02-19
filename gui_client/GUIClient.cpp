@@ -7755,6 +7755,9 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 						if(our_avatar)
 						{
 							// Handle standalone seat objects for the player's own avatar
+							// Note: This code is similar to the vehicle seat handling and other avatar seat handling below,
+							// but kept separate because there are subtle differences in how transformations are computed
+							// and state is managed between player avatars, other avatars, and vehicles.
 							if(vehicle_controller_inside.isNull() && cam_controller.nonNull() && cam_controller->avatar->entered_vehicle.nonNull() && cam_controller->avatar->entered_vehicle->seat_script.nonNull())
 							{
 								WorldObject* seat_ob = cam_controller->avatar->entered_vehicle.ptr();
@@ -15507,11 +15510,14 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 					if(vehicle_controller_inside.isNull()) // If we are not in a vehicle already:
 					{
 						// Sit on the seat
-						this->cur_seat_index = 0; // Standalone seats only have one seat at index 0
+						// Note: Standalone seats always have exactly one seat at index 0, unlike vehicles which can have multiple seats.
+						// This is enforced by the SeatScript structure which contains a single SeatSettings object.
+						this->cur_seat_index = 0;
 						
-						// We don't create a vehicle controller for seats, just mark that we're sitting
-						// by setting vehicle_controller_inside to null but cur_seat_index to 0.
-						// The avatar graphics code will use the seat_script to apply the pose.
+						// For standalone seats, we don't need a vehicle controller since there's no physics simulation.
+						// The seat pose is applied directly from the SeatScript settings.
+						// vehicle_controller_inside remains null, which the avatar graphics code checks to determine
+						// whether to use vehicle controller or seat script for pose application.
 						
 						player_physics.setSittingShape(*physics_world);
 
