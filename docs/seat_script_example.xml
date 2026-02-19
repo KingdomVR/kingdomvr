@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<script>
+	<!-- Example standalone seat script -->
+	<!-- This script can be added to any object to make it a sittable seat -->
+	<!-- To use: 
+	     1. Create or select an object in the world
+	     2. In the ObjectEditor, paste this script into the Script field
+	     3. Hover over the object with your mouse - you should see "Press [E] to sit"
+	     4. Press E to sit on the seat
+	     5. Press F to stand up / exit the seat
+	-->
+	<seat>
+		<!-- Position of the seat in object/model space -->
+		<!-- Adjust these coordinates to match where you want the avatar to sit on your model -->
+		<seat_position>0 0 0</seat_position>
+		
+		<!-- Upper body rotation angle (radians) - controls torso lean -->
+		<upper_body_rot_angle>0.4</upper_body_rot_angle>
+		
+		<!-- Upper leg rotation angle (radians) - controls thigh angle -->
+		<upper_leg_rot_angle>1.3</upper_leg_rot_angle>
+		
+		<!-- Upper leg rotation around thigh bone (radians) -->
+		<upper_leg_rot_around_thigh_bone_angle>0</upper_leg_rot_around_thigh_bone_angle>
+		
+		<!-- Upper leg apart angle (radians) - controls leg spread -->
+		<upper_leg_apart_angle>0</upper_leg_apart_angle>
+		
+		<!-- Lower leg rotation angle (radians) - controls knee bend -->
+		<lower_leg_rot_angle>-0.5</lower_leg_rot_angle>
+		
+		<!-- Lower leg apart angle (radians) -->
+		<lower_leg_apart_angle>0</lower_leg_apart_angle>
+		
+		<!-- Rotate foot out angle (radians) -->
+		<rotate_foot_out_angle>0</rotate_foot_out_angle>
+		
+		<!-- Arm down angle (radians) - controls shoulder position -->
+		<arm_down_angle>1.0</arm_down_angle>
+		
+		<!-- Arm out angle (radians) - controls arm spread -->
+		<arm_out_angle>0.2</arm_out_angle>
+		
+		<!-- Upper arm shoulder lift angle (radians) -->
+		<upper_arm_shoulder_lift_angle>0</upper_arm_shoulder_lift_angle>
+		
+		<!-- Lower arm up angle (radians) - controls elbow bend -->
+		<lower_arm_up_angle>1.5</lower_arm_up_angle>
+		
+		<!-- Optional: Hand hold points in object space (for IK anchoring) -->
+		<!-- Uncomment and adjust if you want the avatar's hands to anchor to specific points -->
+		<!-- <left_hand_hold_point_os>-0.3 0.5 0.2</left_hand_hold_point_os> -->
+		<!-- <right_hand_hold_point_os>0.3 0.5 0.2</right_hand_hold_point_os> -->
+	</seat>
+</script>
