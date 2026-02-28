@@ -161,6 +161,24 @@ jobs:
           Write-Host "✓ Set MSBuildExtensionsPath to: $correctMSBuildPath"
           Write-Host "✓ Set MSBuildSDKsPath to: $($env:MSBuildSDKsPath)"
 
+      - name: Debug environment before build
+        shell: pwsh
+        run: |
+          Write-Host "=== BEFORE BUILD DEBUG ==="
+          Write-Host ""
+          Write-Host "PATH entries:"
+          $env:PATH -split [System.IO.Path]::PathSeparator | ForEach-Object { Write-Host "  $_" }
+          
+          Write-Host ""
+          Write-Host "Critical env vars:"
+          Write-Host "  MSBuildExtensionsPath = $env:MSBuildExtensionsPath"
+          Write-Host "  VCTargetsPath = $env:VCTargetsPath"
+          Write-Host "  VSINSTALLDIR = $env:VSINSTALLDIR"
+          
+          Write-Host ""
+          Write-Host "Which msbuild.exe will Ruby find:"
+          & where.exe msbuild.exe 2>&1 | ForEach-Object { Write-Host "  $_" }
+
       - name: Install build prerequisites
         shell: pwsh
         run: |
@@ -178,32 +196,48 @@ jobs:
         working-directory: work/glare-core/scripts
         shell: pwsh
         run: |
-          # Set ALL critical MSBuild variables BEFORE running Ruby in this session
+          Write-Host "=== LIBRESSL/JPEG BUILD DEBUG ==="
           $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           
-          # Set multiple critical paths that CMake/MSBuild use
+          if (-not $vsPath) {
+            Write-Error "vswhere failed"; exit 1
+          }
+          
           $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
           $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
           $env:VCTargetsPath = "$vsPath\MSBuild\Microsoft\VC\v170\"
           
-          Write-Host "Environment variables set:"
-          Write-Host "  MSBuildExtensionsPath = $env:MSBuildExtensionsPath"
-          Write-Host "  MSBuildSDKsPath = $env:MSBuildSDKsPath"
-          Write-Host "  VCTargetsPath = $env:VCTargetsPath"
+          Write-Host "VS Path: $vsPath"
+          Write-Host "Env vars set:"
+          Write-Host "  MSBuildExtensionsPath = $env:MSBuildExtensionsPath (exists: $(Test-Path $env:MSBuildExtensionsPath))"
+          Write-Host "  VCTargetsPath = $env:VCTargetsPath (exists: $(Test-Path $env:VCTargetsPath))"
+          Write-Host "Ruby will find: $(& where.exe msbuild.exe | Select-Object -First 1)"
           
-          # Run heartbeat in background
           $HeartbeatJob = Start-Job -ScriptBlock {
             while ($true) {
-              Write-Host "[heartbeat] deps build running: $(Get-Date -Format 'u')"
+              Write-Host "[heartbeat] $(Get-Date -Format 'u')"
               Start-Sleep -Seconds 120
             }
           }
           
           try {
-            # Call Ruby directly (NOT via Start-Process) so it inherits this PowerShell session's environment
+            Write-Host ""
+            Write-Host "=== LIBRESSL BUILD ==="
             & ruby build_libressl.rb --config "$env:BUILD_CONFIG"
+            if ($LASTEXITCODE -ne 0) { 
+              Write-Error "LibreSSL FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE 
+            }
+            
+            Write-Host ""
+            Write-Host "=== JPEG BUILD ==="
             & ruby build_jpegturbo.rb --config "$env:BUILD_CONFIG"
+            if ($LASTEXITCODE -ne 0) { 
+              Write-Error "JPEG FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE 
+            }
+            
+            Write-Host ""
+            Write-Host "✓ Both builds succeeded"
           } finally {
             Stop-Job $HeartbeatJob -ErrorAction SilentlyContinue
             Remove-Job $HeartbeatJob -ErrorAction SilentlyContinue
@@ -213,32 +247,41 @@ jobs:
         working-directory: work/glare-core/scripts
         shell: pwsh
         run: |
-          # Set ALL critical MSBuild variables BEFORE running Ruby
+          Write-Host "=== LLVM BUILD DEBUG ==="
           $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          
+          if (-not $vsPath) { Write-Error "vswhere failed"; exit 1 }
+          
           $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
           $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
           $env:VCTargetsPath = "$vsPath\MSBuild\Microsoft\VC\v170\"
           
-          Write-Host "Environment variables set for LLVM build:"
-          Write-Host "  MSBuildExtensionsPath = $env:MSBuildExtensionsPath"
-          Write-Host "  VCTargetsPath = $env:VCTargetsPath"
+          Write-Host "VS Path: $vsPath"
+          Write-Host "Env vars set:"
+          Write-Host "  MSBuildExtensionsPath = $env:MSBuildExtensionsPath (exists: $(Test-Path $env:MSBuildExtensionsPath))"
+          Write-Host "  VCTargetsPath = $env:VCTargetsPath (exists: $(Test-Path $env:VCTargetsPath))"
+          Write-Host "Ruby will find: $(& where.exe msbuild.exe | Select-Object -First 1)"
           
           $LogDir = "${{ github.workspace }}/logs"
           New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
           $LLVMLog = "$LogDir/llvm_build.log"
 
-          # Run Ruby directly in this session (inherits environment) with output redirection
-          Write-Host "Starting LLVM build..."
+          Write-Host ""
+          Write-Host "=== LLVM BUILD ===" 
           & ruby build_llvm.rb --config "$env:BUILD_CONFIG" 2>&1 | Tee-Object -FilePath $LLVMLog
           
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {
-            Write-Host "LLVM build failed (exit code: $exitCode)."
+            Write-Host ""
+            Write-Host "=== LLVM FAILED (exit: $exitCode) ===" 
+            Write-Host "Last 150 lines of log:"
+            Get-Content $LLVMLog -ErrorAction SilentlyContinue | Select-Object -Last 150
             exit $exitCode
           }
           
-          Write-Host "LLVM build completed successfully."
+          Write-Host ""
+          Write-Host "✓ LLVM build succeeded"
 
       - name: Get additional libs used by Substrata
         working-directory: work/substrata/scripts
