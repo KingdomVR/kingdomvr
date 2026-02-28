@@ -6,7 +6,7 @@
  			STDERR.puts "#{@build_name} CMake init: Error, base build path must be absolute."
  			exit(1)
  		end
-+		
++
 +		@using_ninja = false
  	end
  	
@@ -53,7 +53,7 @@
  		end
  	end
  	
-+	
++
 +	def buildWithCMake(targets, clean)
 +		config_name = getConfigName()
 +		
@@ -68,8 +68,8 @@
 +			exec_command("cmake --build . #{target_args} --config #{config_name} --parallel")
 +		end
 +	end
-+	
-+	
++
++
 +	def installWithCMake()
 +		Dir.chdir(@build_dir) do
 +			exec_command("cmake --build . --target install --config #{getConfigName()}")
