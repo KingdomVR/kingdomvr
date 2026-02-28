@@ -1,0 +1,312 @@
+# Build Windows 64-bit gui_client using stored deps (Release, no CEF)
+# Mirrors build-macos-from-store.yml but targets Windows 64-bit (MSVC 2022).
+# Qt 5.15.16 is installed via aqtinstall (prebuilt MSVC 2019 x64 binaries, binary-compatible with MSVC 2022).
+name: Build Windows 64-bit gui_client using stored deps (Release, no CEF)
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "If true, create a GitHub Release and upload the zip there"
+        required: true
+        default: "false"
+      tag_name:
+        description: "Release tag (required if create_release=true), e.g. v0.1.0"
+        required: false
+      deps_release_tag:
+        description: "Tag in the deps store repo to download (optional). If empty, use latest."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    env:
+      BASE_DIR: ${{ github.workspace }}/work
+
+      # Glare build scripts expect these environment variables.
+      GLARE_CORE_LIBS: ${{ github.workspace }}/work
+      WINTER_DIR: ${{ github.workspace }}/work/winter
+      GLARE_CORE_TRUNK_DIR: ${{ github.workspace }}/work/glare-core
+      CYBERSPACE_OUTPUT: ${{ github.workspace }}/work/substrata_output
+
+      CEF_SUPPORT: "OFF"
+      BUILD_CONFIG: "Release"
+
+      STORE_OWNER: "JerryBerry12"
+      STORE_REPO: "kingdomvr-store-deps"
+
+    steps:
+      - name: Check STORE_REPO_PAT secret at runtime
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.STORE_REPO_PAT }}" ]; then
+            echo "Secret STORE_REPO_PAT is required in this repository (a PAT with repo access to ${STORE_OWNER}/${STORE_REPO})."
+            exit 1
+          fi
+
+      - name: Show runner + disk info (before)
+        shell: bash
+        run: |
+          cmake --version || true
+          ruby --version || true
+          python --version || true
+          df -h || true
+
+      - name: Set up MSVC developer environment (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Download deps archive from store repository
+        id: download_asset
+        shell: bash
+        env:
+          STORE_REPO_PAT: ${{ secrets.STORE_REPO_PAT }}
+        run: |
+          set -euxo pipefail
+
+          TAG_INPUT="${{ github.event.inputs.deps_release_tag }}"
+          API="https://api.github.com/repos/${STORE_OWNER}/${STORE_REPO}"
+
+          if [ -n "$TAG_INPUT" ]; then
+            echo "Using provided deps tag: $TAG_INPUT"
+            REL_RESP=$(curl -s -H "Authorization: token ${STORE_REPO_PAT}" "${API}/releases/tags/${TAG_INPUT}")
+          else
+            echo "Getting latest deps release"
+            REL_RESP=$(curl -s -H "Authorization: token ${STORE_REPO_PAT}" "${API}/releases/latest")
+          fi
+
+          ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[0].url // ""')
+          ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[0].name // ""')
+
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "No assets found in the selected deps release. Response:"
+            echo "$REL_RESP"
+            exit 1
+          fi
+
+          echo "Found asset: $ASSET_NAME"
+          DEST="${{ github.workspace }}/$ASSET_NAME"
+
+          # Download using the asset API url (requires Accept header)
+          curl -L -H "Authorization: token ${STORE_REPO_PAT}" -H "Accept: application/octet-stream" \
+            -o "$DEST" "$ASSET_URL"
+
+          echo "downloaded_asset=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: Extract archive into BASE_DIR
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          ARCHIVE="${{ steps.download_asset.outputs.downloaded_asset }}"
+          if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
+            echo "Archive not found at $ARCHIVE - attempting fallback search"
+            ARCHIVE="$(ls "${GITHUB_WORKSPACE}"/*kingdomvr-windows-deps*.zip 2>/dev/null | head -n1 || true)"
+            echo "Fallback archive: $ARCHIVE"
+          fi
+          if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
+            echo "Archive not found."
+            ls -la "${GITHUB_WORKSPACE}"
+            exit 1
+          fi
+          mkdir -p "$BASE_DIR"
+          7z x "$ARCHIVE" -o"$BASE_DIR" -y
+          echo "Extracted $ARCHIVE -> $BASE_DIR"
+
+      - name: Checkout this repo (kingdomvr) into work/substrata (reclone)
+        uses: actions/checkout@v4
+        with:
+          path: work/substrata
+
+      - name: Checkout glare-core (KingdomVR fork) (reclone)
+        uses: actions/checkout@v4
+        with:
+          repository: KingdomVR/glare-core
+          ref: master
+          path: work/glare-core-kingdomvr
+
+      - name: Checkout glare-core (JerryBerry12 fork) (reclone)
+        uses: actions/checkout@v4
+        with:
+          repository: JerryBerry12/glare-core
+          ref: master
+          path: work/glare-core
+
+      - name: Checkout winter (reclone)
+        uses: actions/checkout@v4
+        with:
+          repository: glaretechnologies/winter
+          path: work/winter
+
+      - name: Provide Qt 5.15.16 for Windows via aqtinstall
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          (while true; do
+            echo "[heartbeat] qt install running: $(date -u)"
+            sleep 120
+          done) &
+          HEARTBEAT_PID=$!
+
+          pip install aqtinstall
+
+          QT_INSTALL_ROOT="$GLARE_CORE_LIBS/Qt"
+          mkdir -p "$QT_INSTALL_ROOT"
+
+          # Install Qt 5.15.16 for Windows MSVC 2019 64-bit (binary-compatible with MSVC 2022).
+          # aqtinstall places files at: $QT_INSTALL_ROOT/5.15.16/msvc2019_64/
+          # CMakeLists.txt expects Qt at: $GLARE_CORE_LIBS/Qt/5.15.16-vs2022-64/
+          # (see: set(INDIGO_QT_DIR "${GLARE_CORE_LIBS_ENV}/Qt/${INDIGO_QT_VERSION}-vs${CYBERSPACE_VS_VER}-${CYBERSPACE_BITNESS}"))
+          aqt install-qt windows desktop 5.15.16 win64_msvc2019_64 \
+            -O "$QT_INSTALL_ROOT" \
+            --modules qtmultimedia qtsvg qtgamepad qtwebsockets qtsensors qtserialport qtserialbus
+
+          # Rename from aqtinstall's layout to the path CMakeLists.txt expects.
+          # The binaries are built for MSVC 2019 ABI but are fully binary-compatible with
+          # MSVC 2022; Qt itself documents this compatibility for the 5.15 LTS series.
+          # CMakeLists.txt derives the Qt dir as:
+          #   ${GLARE_CORE_LIBS}/Qt/${INDIGO_QT_VERSION}-vs${CYBERSPACE_VS_VER}-${CYBERSPACE_BITNESS}
+          # which on this runner evaluates to: .../Qt/5.15.16-vs2022-64
+          mv "$QT_INSTALL_ROOT/5.15.16/msvc2019_64" "$QT_INSTALL_ROOT/5.15.16-vs2022-64"
+
+          if [ ! -f "$QT_INSTALL_ROOT/5.15.16-vs2022-64/bin/qmake.exe" ]; then
+            echo "qmake.exe not found - Qt install may have failed"
+            ls -la "$QT_INSTALL_ROOT" || true
+            kill $HEARTBEAT_PID || true
+            exit 1
+          fi
+
+          echo "Qt 5.15.16 installed at $QT_INSTALL_ROOT/5.15.16-vs2022-64"
+          kill $HEARTBEAT_PID || true
+
+      - name: Configure CMake (Release, no CEF, Windows x64)
+        shell: bash
+        run: |
+          mkdir -p "$BASE_DIR/substrata_build"
+          cd "$BASE_DIR/substrata_build"
+          cmake "$BASE_DIR/substrata" \
+            -G "Visual Studio 17 2022" \
+            -A x64 \
+            -DCEF_SUPPORT="$CEF_SUPPORT"
+
+      - name: Build gui_client (cmake --build)
+        shell: bash
+        run: |
+          (while true; do
+            echo "[heartbeat] gui_client build running: $(date -u)"
+            sleep 120
+          done) &
+          HEARTBEAT_PID=$!
+
+          cd "$BASE_DIR/substrata_build"
+          cmake --build . --config "$BUILD_CONFIG" --target gui_client
+
+          kill $HEARTBEAT_PID || true
+
+      - name: Locate gui_client.exe and run windeployqt
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          QT_BIN="$GLARE_CORE_LIBS/Qt/5.15.16-vs2022-64/bin"
+
+          # The VS generator outputs to $CYBERSPACE_OUTPUT/vs2022/cyberspace_x64/<config>/
+          EXE=""
+          if [ -d "$CYBERSPACE_OUTPUT" ]; then
+            EXE="$(find "$CYBERSPACE_OUTPUT" -name "gui_client.exe" -print -quit 2>/dev/null || true)"
+          fi
+
+          # Fallback: search build dir
+          if [ -z "$EXE" ] && [ -d "$BASE_DIR/substrata_build" ]; then
+            EXE="$(find "$BASE_DIR/substrata_build" -name "gui_client.exe" -print -quit 2>/dev/null || true)"
+          fi
+
+          if [ -z "$EXE" ] || [ ! -f "$EXE" ]; then
+            echo "gui_client.exe not found. Debug:"
+            ls -la "$CYBERSPACE_OUTPUT" || true
+            find "$BASE_DIR" -name "gui_client.exe" -print || true
+            exit 1
+          fi
+
+          echo "Found gui_client.exe at: $EXE"
+
+          "$QT_BIN/windeployqt.exe" --release "$EXE"
+
+          echo "windeployqt finished. Contents of output dir:"
+          ls -la "$(dirname "$EXE")" || true
+
+      - name: Copy runtime files to output (no CEF)
+        working-directory: work/substrata/scripts
+        shell: bash
+        run: |
+          ruby copy_files_to_output.rb --no_cef
+
+      - name: Show disk space (after build)
+        shell: bash
+        run: df -h || true
+
+      - name: Create distributable zip from output directory
+        id: package
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          # Find the directory containing gui_client.exe
+          EXE="$(find "$CYBERSPACE_OUTPUT" -name "gui_client.exe" -print -quit 2>/dev/null || true)"
+          if [ -z "$EXE" ]; then
+            EXE="$(find "$BASE_DIR" -name "gui_client.exe" -print -quit 2>/dev/null || true)"
+          fi
+
+          if [ -z "$EXE" ] || [ ! -f "$EXE" ]; then
+            echo "gui_client.exe not found for packaging. Debug:"
+            ls -la "$CYBERSPACE_OUTPUT" || true
+            find "$BASE_DIR" -name "gui_client.exe" -print || true
+            exit 1
+          fi
+
+          EXE_DIR="$(dirname "$EXE")"
+          echo "Packaging output directory: $EXE_DIR"
+
+          VERSION="$(ruby "$BASE_DIR/substrata/scripts/config.rb" --version || echo "unknown")"
+          ZIP_NAME="substrata-windows-${VERSION}-gui_client-no-cef.zip"
+          ZIP_PATH="${{ github.workspace }}/$ZIP_NAME"
+
+          cd "$EXE_DIR"
+          7z a -tzip "$ZIP_PATH" .
+
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact (short retention)
+        if: ${{ inputs.create_release != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gui-client
+          path: ${{ steps.package.outputs.zip_path }}
+          retention-days: 1
+
+      - name: Validate release inputs
+        if: ${{ inputs.create_release == 'true' }}
+        shell: bash
+        run: |
+          if [ -z "${{ inputs.tag_name }}" ]; then
+            echo "tag_name is required when create_release=true"
+            exit 1
+          fi
+
+      - name: Create GitHub Release (draft) and upload asset
+        if: ${{ inputs.create_release == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name }}
+          name: ${{ inputs.tag_name }}
+          draft: true
+          generate_release_notes: true
+          files: ${{ steps.package.outputs.zip_path }}
