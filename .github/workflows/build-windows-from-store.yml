@@ -275,6 +275,22 @@ jobs:
           echo "      Binary compatibility within 5.15.x LTS series should ensure compatibility"
           kill $HEARTBEAT_PID || true
 
+      - name: Download additional libraries (Luau, Jolt)
+        working-directory: work/glare-core/scripts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          
+          echo "Running get_libs.rb to download Luau and Jolt..."
+          
+          # Remove existing directories to force re-download
+          rm -rf "$GLARE_CORE_LIBS/luau" || true
+          rm -rf "$GLARE_CORE_LIBS/jolt" || true
+          
+          ruby get_libs.rb
+          
+          echo "✓ Additional libraries downloaded"
+
       - name: Configure CMake (Release, no CEF, Windows x64)
         shell: bash
         run: |
