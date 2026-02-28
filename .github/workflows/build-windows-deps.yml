@@ -178,7 +178,16 @@ jobs:
         working-directory: work/glare-core/scripts
         shell: pwsh
         run: |
-          # Run in PowerShell to preserve MSVC environment variables
+          # Set correct MSBuild paths in current session before calling Ruby
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
+          $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
+          
+          Write-Host "MSBuildExtensionsPath set to: $env:MSBuildExtensionsPath"
+          Write-Host "MSBuildSDKsPath set to: $env:MSBuildSDKsPath"
+          
+          # Run heartbeat in background
           $HeartbeatJob = Start-Job -ScriptBlock {
             while ($true) {
               Write-Host "[heartbeat] deps build running: $(Get-Date -Format 'u')"
@@ -198,6 +207,15 @@ jobs:
         working-directory: work/glare-core/scripts
         shell: pwsh
         run: |
+          # Set correct MSBuild paths in current session before calling Ruby
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
+          $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
+          
+          Write-Host "MSBuildExtensionsPath set to: $env:MSBuildExtensionsPath"
+          Write-Host "MSBuildSDKsPath set to: $env:MSBuildSDKsPath"
+          
           $LogDir = "${{ github.workspace }}/logs"
           New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
           $LLVMLog = "$LogDir/llvm_build.log"
