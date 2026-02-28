@@ -81,8 +81,23 @@ jobs:
             REL_RESP=$(curl -s -H "Authorization: token ${STORE_REPO_PAT}" "${API}/releases/latest")
           fi
 
-          ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[0].url // ""')
-          ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[0].name // ""')
+          echo "Release assets:"
+          echo "$REL_RESP" | jq -r '.assets[].name // empty'
+
+          ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.7z$")) | .name' | head -n1)
+          ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.7z$")) | .url' | head -n1)
+
+          # Fallback: try zip if .7z is not present.
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.zip$")) | .name' | head -n1)
+            ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.zip$")) | .url' | head -n1)
+          fi
+
+          # Final fallback: choose first non-source .7z/.zip asset if pattern match fails.
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[] | select(((.name | endswith(".7z")) or ((.name | endswith(".zip")) and (.name != "Source code (zip)"))) | .name' | head -n1)
+            ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[] | select(((.name | endswith(".7z")) or ((.name | endswith(".zip")) and (.name != "Source code (zip)"))) | .url' | head -n1)
+          fi
 
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
             echo "No assets found in the selected deps release. Response:"
@@ -107,7 +122,10 @@ jobs:
           ARCHIVE="${{ steps.download_asset.outputs.downloaded_asset }}"
           if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
             echo "Archive not found at $ARCHIVE - attempting fallback search"
-            ARCHIVE="$(ls "${GITHUB_WORKSPACE}"/*kingdomvr-windows-deps*.zip 2>/dev/null | head -n1 || true)"
+            ARCHIVE="$(ls "${GITHUB_WORKSPACE}"/*kingdomvr-windows-deps*.7z 2>/dev/null | head -n1 || true)"
+            if [ -z "$ARCHIVE" ]; then
+              ARCHIVE="$(ls "${GITHUB_WORKSPACE}"/*kingdomvr-windows-deps*.zip 2>/dev/null | head -n1 || true)"
+            fi
             echo "Fallback archive: $ARCHIVE"
           fi
           if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
@@ -118,6 +136,34 @@ jobs:
           mkdir -p "$BASE_DIR"
           7z x "$ARCHIVE" -o"$BASE_DIR" -y
           echo "Extracted $ARCHIVE -> $BASE_DIR"
+
+      - name: Verify extracted prebuilt deps
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          REQUIRED=(
+            "$BASE_DIR/LibreSSL/libressl-3.5.2-x64-vs2022-install/include/tls.h"
+            "$BASE_DIR/LibreSSL/libressl-3.5.2-x64-vs2022-install/include/openssl/crypto.h"
+            "$BASE_DIR/llvm/llvm_15_0_7_install_vs2022_64/include/llvm/IR/IRBuilder.h"
+            "$BASE_DIR/libjpeg-turbo/libjpeg-turbo-3.0.0-vs2022-install/include/jpeglib.h"
+          )
+
+          MISSING=0
+          for f in "${REQUIRED[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "Missing required file: $f"
+              MISSING=1
+            fi
+          done
+
+          if [ "$MISSING" -ne 0 ]; then
+            echo "Dependency restore is incomplete. Top-level BASE_DIR contents:"
+            ls -la "$BASE_DIR" || true
+            exit 1
+          fi
+
+          echo "✓ Prebuilt dependency verification passed"
 
       - name: Checkout this repo (kingdomvr) into work/substrata (reclone)
         uses: actions/checkout@v4
@@ -299,7 +345,8 @@ jobs:
           cmake "$BASE_DIR/substrata" \
             -G "Visual Studio 17 2022" \
             -A x64 \
-            -DCEF_SUPPORT="$CEF_SUPPORT"
+            -DCEF_SUPPORT="$CEF_SUPPORT" \
+            -DBUGSPLAT_SUPPORT=OFF
 
       - name: Build gui_client (cmake --build)
         shell: bash

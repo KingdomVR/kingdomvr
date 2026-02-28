@@ -360,24 +360,33 @@ jobs:
         shell: bash
         run: df -h || true
 
-      - name: Package freshly-created deps (zip, exclude source/build/Qt dirs)
+      - name: Package freshly-created deps (7z, exclude source/build/Qt dirs)
         id: package
         shell: bash
         run: |
           set -euxo pipefail
 
-          ARCHIVE_NAME="kingdomvr-windows-deps-${{ github.run_id }}.zip"
+          ARCHIVE_NAME="kingdomvr-windows-deps-${{ github.run_id }}.7z"
           ARCHIVE_PATH="${{ github.workspace }}/$ARCHIVE_NAME"
 
-          # Zip up BASE_DIR contents, excluding source, build, and Qt dirs (same exclusions as macOS workflow).
+          # Archive BASE_DIR contents, excluding source, build, and Qt dirs.
+          # Use 7z compression to reduce size and avoid GitHub's 2GB per-asset limit.
           cd "$BASE_DIR"
-          7z a -tzip "$ARCHIVE_PATH" . \
+          7z a -t7z -mx=9 "$ARCHIVE_PATH" . \
             -xr!substrata \
             -xr!glare-core \
             -xr!substrata_build \
             -xr!substrata_output \
             -xr!Qt \
             -xr!winter
+
+          ARCHIVE_SIZE_BYTES=$(wc -c < "$ARCHIVE_PATH")
+          MAX_BYTES=2147483647
+          echo "Archive size (bytes): $ARCHIVE_SIZE_BYTES"
+          if [ "$ARCHIVE_SIZE_BYTES" -gt "$MAX_BYTES" ]; then
+            echo "ERROR: Archive exceeds GitHub release asset limit (2GB)."
+            exit 1
+          fi
 
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
           echo "archive_name=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
@@ -416,7 +425,17 @@ jobs:
           UPLOAD_URL="${UPLOAD_URL%\{*}"
 
           echo "Uploading asset ${ARCHIVE_NAME}"
-          curl -s --data-binary @"${ARCHIVE_PATH}" -H "Authorization: token ${STORE_REPO_PAT}" -H "Content-Type: application/zip" \
-            "${UPLOAD_URL}?name=${ARCHIVE_NAME}" | jq -r .
+          UPLOAD_RESP=$(curl -s --data-binary @"${ARCHIVE_PATH}" \
+            -H "Authorization: token ${STORE_REPO_PAT}" \
+            -H "Content-Type: application/x-7z-compressed" \
+            "${UPLOAD_URL}?name=${ARCHIVE_NAME}")
+
+          echo "$UPLOAD_RESP" | jq -r .
+
+          ASSET_ID=$(echo "$UPLOAD_RESP" | jq -r '.id // empty')
+          if [ -z "$ASSET_ID" ]; then
+            echo "ERROR: Upload failed. GitHub did not return an asset id."
+            exit 1
+          fi
 
           echo "Uploaded ${ARCHIVE_NAME} to ${STORE_OWNER}/${STORE_REPO} (draft release ${TAG})."
