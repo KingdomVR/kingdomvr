@@ -60,6 +60,34 @@ jobs:
           repository: glaretechnologies/winter
           path: work/winter
 
+      - name: Patch cmake.rb to respect CMAKE_GENERATOR environment variable
+        shell: pwsh
+        run: |
+          $cmakeRb = "work/glare-core/scripts/cmake.rb"
+          Write-Host "Patching $cmakeRb to respect CMAKE_GENERATOR environment variable..."
+          
+          $content = Get-Content $cmakeRb -Raw
+          
+          # Find and replace the Windows generator line to check for CMAKE_GENERATOR env var
+          $oldPattern = 'if OS\.windows\?\s+win_args = " -G \\"#\{getVSGenerator\(\)\}\\" -T \\"#\{getVSToolset\(\)\}\\""'
+          $newCode = @'
+if OS.windows?
+			# Respect CMAKE_GENERATOR environment variable if set (e.g., for Ninja builds)
+			if ENV['CMAKE_GENERATOR']
+				puts "#{@build_name} CMake configure: Using CMAKE_GENERATOR from environment: #{ENV['CMAKE_GENERATOR']}"
+				# Don't set -G flag, let CMake use the environment variable
+				# Only set toolset if using Visual Studio generator
+				win_args = ENV['CMAKE_GENERATOR'].include?("Visual Studio") ? " -T \"#{getVSToolset()}\"" : ""
+			else
+				win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
+			end
+'@
+          
+          $content = $content -replace $oldPattern, $newCode
+          $content | Set-Content $cmakeRb -NoNewline
+          
+          Write-Host "✓ Patched cmake.rb successfully"
+
       - name: Show runner + disk info (before)
         shell: bash
         run: |
