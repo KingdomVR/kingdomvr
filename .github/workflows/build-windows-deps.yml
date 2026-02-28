@@ -114,6 +114,17 @@ jobs:
           $env:PATH = "$(Split-Path $msbuildPath)" + [System.IO.Path]::PathSeparator + $env:PATH
           Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
 
+      - name: Disable .NET Framework MSBuild to force VS 2022 MSBuild
+        shell: pwsh
+        run: |
+          # Move the .NET Framework MSBuild out of the way so Ruby scripts don't find it
+          $netMsbuild = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe"
+          if (Test-Path $netMsbuild) {
+            $backup = "$netMsbuild.bak"
+            Write-Host "Moving $netMsbuild to $backup"
+            Move-Item -Path $netMsbuild -Destination $backup -Force
+          }
+
       - name: Install build prerequisites
         shell: pwsh
         run: |
