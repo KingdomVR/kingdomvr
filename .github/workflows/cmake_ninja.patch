@@ -1,6 +1,17 @@
 --- a/scripts/cmake.rb
 +++ b/scripts/cmake.rb
-@@ -83,7 +83,14 @@ class CMakeBuild
+@@ -48,6 +48,8 @@ class CMakeBuild
+ 		@install_dir = install_dir
+ 		if !Pathname.new(@install_dir).absolute?
+ 			STDERR.puts "#{@build_name} CMake init: Error, base build path must be absolute."
+ 			exit(1)
+ 		end
++		
++		@using_ninja = false
+ 	end
+ 	
+ 	
+@@ -83,7 +85,15 @@ class CMakeBuild
  			osx_args += " -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=\"10.8\"" # the sdk still needs to work on 10.8 during 4.4, even if the main indigo release targets 10.13 (because of Qt)
  		end
  
@@ -11,9 +22,59 @@
 +				puts "#{@build_name} CMake configure: Using CMAKE_GENERATOR from environment: #{ENV['CMAKE_GENERATOR']}"
 +				# Don't set -G flag, let CMake use the environment variable
 +				win_args = ENV['CMAKE_GENERATOR'].include?("Visual Studio") ? " -T \"#{getVSToolset()}\"" : ""
++				@using_ninja = (ENV['CMAKE_GENERATOR'] == 'Ninja')
 +			else
 +				win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
 +			end
  		end
  
  		Dir.chdir(@build_dir) do
+@@ -109,7 +119,9 @@ class CMakeBuild
+ 		
+ 		# Basically, do not use 'cmake --build', it sucks.
+ 		if OS.windows?
+-			buildVisualStudio(targets, clean)
++			# Use cmake --build for Ninja, otherwise use MSBuild directly
++			@using_ninja ? buildWithCMake(targets, clean) : buildVisualStudio(targets, clean)
+ 		else
+ 			buildMakefile(targets, clean)
+ 		end
+@@ -126,7 +138,7 @@ class CMakeBuild
+ 
+ 	# User can increase epoch to force a rebuild.
+ 	def install(epoch = 0)
+ 		if OS.windows?
+-			installVisualStudio()
++			@using_ninja ? installWithCMake() : installVisualStudio()
+ 		else
+ 			installMakefile()
+ 		end
+@@ -162,6 +174,27 @@ class CMakeBuild
+ 		end
+ 	end
+ 	
++	
++	def buildWithCMake(targets, clean)
++		config_name = getConfigName()
++		
++		if clean
++			Dir.chdir(@build_dir) do
++				exec_command("cmake --build . --target clean --config #{config_name}")
++			end
++		end
++		
++		Dir.chdir(@build_dir) do
++			target_args = targets.map { |t| "--target #{t}" }.join(" ")
++			exec_command("cmake --build . #{target_args} --config #{config_name} --parallel")
++		end
++	end
++	
++	
++	def installWithCMake()
++		Dir.chdir(@build_dir) do
++			exec_command("cmake --build . --target install --config #{getConfigName()}")
++		end
++	end
+ 	
+ 	def buildVisualStudio(targets, clean)
+ 		msbuildpath = getMSBuildPath()
