@@ -94,6 +94,9 @@ jobs:
             echo "$REL_RESP" | jq -r --arg stem "$STEM" '.assets[] | select((.name | startswith($stem + ".")) and (.name | test("\\.7z\\.[0-9]{3}$"))) | [.name, .url] | @tsv' \
               | sort \
               | while IFS=$'\t' read -r part_name part_url; do
+                  # Strip carriage returns from URLs that may have CRLF line endings
+                  part_url=$(echo "$part_url" | tr -d '\r')
+                  
                   DEST="${{ github.workspace }}/$part_name"
                   echo "Downloading part: $part_name"
                   curl -L -H "Authorization: token ${STORE_REPO_PAT}" -H "Accept: application/octet-stream" \
