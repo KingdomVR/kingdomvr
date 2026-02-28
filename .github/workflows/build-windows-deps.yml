@@ -73,6 +73,27 @@ jobs:
         with:
           arch: amd64
 
+      - name: Setup MSBuild for Visual Studio 2022
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Verify Visual Studio C++ components
+        shell: pwsh
+        run: |
+          Write-Host "Checking for Visual Studio 2022 C++ components..."
+          $vsPath = "C:\Program Files (x86)\Microsoft Visual Studio\2022\Community"
+          $cppPropsPath = "$vsPath\MSBuild\Microsoft\VC\v170\Microsoft.Cpp.Default.props"
+          
+          if (Test-Path $cppPropsPath) {
+            Write-Host "✓ Found C++ props at: $cppPropsPath"
+          } else {
+            Write-Host "✗ C++ props NOT found at: $cppPropsPath"
+            Write-Host "Listing available VC paths:"
+            Get-ChildItem "$vsPath\MSBuild\Microsoft\VC" -ErrorAction SilentlyContinue | Format-Table
+          }
+          
+          Write-Host "\nChecking vswhere output:"
+          & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -all
+
       - name: Setup MSBuild path for Ruby scripts
         shell: pwsh
         run: |
@@ -108,50 +129,58 @@ jobs:
 
       - name: Build LibreSSL + libjpeg-turbo (Release only)
         working-directory: work/glare-core/scripts
-        shell: bash
+        shell: pwsh
         run: |
-          (while true; do
-            echo "[heartbeat] deps build running: $(date -u)"
-            sleep 120
-          done) &
-          HEARTBEAT_PID=$!
-
-          ruby build_libressl.rb --config "$BUILD_CONFIG"
-          ruby build_jpegturbo.rb --config "$BUILD_CONFIG"
-
-          kill $HEARTBEAT_PID || true
+          # Run in PowerShell to preserve MSVC environment variables
+          $HeartbeatJob = Start-Job -ScriptBlock {
+            while ($true) {
+              Write-Host "[heartbeat] deps build running: $(Get-Date -Format 'u')"
+              Start-Sleep -Seconds 120
+            }
+          }
+          
+          try {
+            ruby build_libressl.rb --config "$env:BUILD_CONFIG"
+            ruby build_jpegturbo.rb --config "$env:BUILD_CONFIG"
+          } finally {
+            Stop-Job $HeartbeatJob -ErrorAction SilentlyContinue
+            Remove-Job $HeartbeatJob -ErrorAction SilentlyContinue
+          }
 
       - name: Build LLVM (Release only, with log + observable progress)
         working-directory: work/glare-core/scripts
-        shell: bash
+        shell: pwsh
         run: |
-          set -euxo pipefail
+          $LogDir = "${{ github.workspace }}/logs"
+          New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+          $LLVMLog = "$LogDir/llvm_build.log"
+          "" | Out-File -FilePath $LLVMLog
 
-          LOG_DIR="${{ github.workspace }}/logs"
-          mkdir -p "$LOG_DIR"
-          LLVM_LOG="$LOG_DIR/llvm_build.log"
-          : > "$LLVM_LOG"
+          $process = Start-Process ruby -ArgumentList "build_llvm.rb --config $env:BUILD_CONFIG" `
+            -RedirectStandardOutput $LLVMLog -RedirectStandardError $LLVMLog -PassThru -NoNewWindow
 
-          ruby build_llvm.rb --config "$BUILD_CONFIG" > "$LLVM_LOG" 2>&1 &
-          LLVM_PID=$!
+          $elapsed = 0
+          while (-not $process.HasExited) {
+            Write-Host "[heartbeat] llvm still running: $(Get-Date -Format 'u') (elapsed ${elapsed}s)"
+            If (Test-Path $LLVMLog) {
+              $logSize = (Get-Item $LLVMLog).Length
+              Write-Host "[llvm log bytes] $logSize"
+              $lastLine = @(Get-Content $LLVMLog)[-1]
+              if ($lastLine) { Write-Host $lastLine }
+            }
+            Start-Sleep -Seconds 30
+            $elapsed += 30
+          }
 
-          T=0
-          while kill -0 "$LLVM_PID" 2>/dev/null; do
-            echo "[heartbeat] llvm still running: $(date -u) (elapsed ${T}s)"
-            echo "[llvm log bytes] $(wc -c < "$LLVM_LOG" 2>/dev/null || echo 0)"
-            tail -n 1 "$LLVM_LOG" || true
-            sleep 30
-            T=$((T + 30))
-          done
-
-          wait "$LLVM_PID" || {
-            echo "LLVM build failed. Last 200 lines of log:"
-            tail -n 200 "$LLVM_LOG" || true
+          $exitCode = $process.ExitCode
+          if ($exitCode -ne 0) {
+            Write-Host "LLVM build failed. Last 200 lines of log:"
+            Get-Content $LLVMLog | Select-Object -Last 200
             exit 1
           }
 
-          echo "LLVM build finished. Last 50 lines of log:"
-          tail -n 50 "$LLVM_LOG" || true
+          Write-Host "LLVM build finished. Last 50 lines of log:"
+          Get-Content $LLVMLog | Select-Object -Last 50
 
       - name: Get additional libs used by Substrata
         working-directory: work/substrata/scripts
