@@ -196,7 +196,7 @@ jobs:
         working-directory: work/glare-core/scripts
         shell: pwsh
         run: |
-          Write-Host "=== LIBRESSL/JPEG BUILD DEBUG ==="
+          Write-Host "=== LIBRESSL/JPEG BUILD ==="
           $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           
@@ -204,15 +204,30 @@ jobs:
             Write-Error "vswhere failed"; exit 1
           }
           
+          # Get the EXACT path to VS 2022 MSBuild.exe
+          $msbuildPath = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+          if (-not (Test-Path $msbuildPath)) {
+            Write-Error "MSBuild.exe not found at $msbuildPath"; exit 1
+          }
+          
+          # Remove .NET Framework MSBuild from PATH completely by rebuilding PATH without it
+          $newPath = ($env:PATH -split [System.IO.Path]::PathSeparator | Where-Object { 
+            $_ -notlike "*Microsoft.NET\Framework*" 
+          }) -join [System.IO.Path]::PathSeparator
+          
+          # Prepend VS 2022 MSBuild directory as THE FIRST entry
+          $msbuildDir = Split-Path $msbuildPath
+          $env:PATH = "$msbuildDir" + [System.IO.Path]::PathSeparator + $newPath
+          
+          # Set all MSBuild environment variables
           $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
           $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
           $env:VCTargetsPath = "$vsPath\MSBuild\Microsoft\VC\v170\"
           
-          Write-Host "VS Path: $vsPath"
-          Write-Host "Env vars set:"
-          Write-Host "  MSBuildExtensionsPath = $env:MSBuildExtensionsPath (exists: $(Test-Path $env:MSBuildExtensionsPath))"
-          Write-Host "  VCTargetsPath = $env:VCTargetsPath (exists: $(Test-Path $env:VCTargetsPath))"
-          Write-Host "Ruby will find: $(& where.exe msbuild.exe | Select-Object -First 1)"
+          Write-Host "Using MSBuild: $msbuildPath"
+          Write-Host "First PATH entry: $msbuildDir"
+          Write-Host "Verify which msbuild: $(& where.exe msbuild.exe | Select-Object -First 1)"
+          Write-Host "Verify version: $(& $msbuildPath -version | Select-Object -Last 1)"
           
           $HeartbeatJob = Start-Job -ScriptBlock {
             while ($true) {
@@ -247,28 +262,38 @@ jobs:
         working-directory: work/glare-core/scripts
         shell: pwsh
         run: |
-          Write-Host "=== LLVM BUILD DEBUG ==="
+          Write-Host "=== LLVM BUILD ==="
           $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           
           if (-not $vsPath) { Write-Error "vswhere failed"; exit 1 }
           
+          # Get exact MSBuild path and remove .NET Framework versions from PATH
+          $msbuildPath = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+          if (-not (Test-Path $msbuildPath)) {
+            Write-Error "MSBuild.exe not found at $msbuildPath"; exit 1
+          }
+          
+          $newPath = ($env:PATH -split [System.IO.Path]::PathSeparator | Where-Object { 
+            $_ -notlike "*Microsoft.NET\Framework*" 
+          }) -join [System.IO.Path]::PathSeparator
+          
+          $msbuildDir = Split-Path $msbuildPath
+          $env:PATH = "$msbuildDir" + [System.IO.Path]::PathSeparator + $newPath
+          
           $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
           $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
           $env:VCTargetsPath = "$vsPath\MSBuild\Microsoft\VC\v170\"
           
-          Write-Host "VS Path: $vsPath"
-          Write-Host "Env vars set:"
-          Write-Host "  MSBuildExtensionsPath = $env:MSBuildExtensionsPath (exists: $(Test-Path $env:MSBuildExtensionsPath))"
-          Write-Host "  VCTargetsPath = $env:VCTargetsPath (exists: $(Test-Path $env:VCTargetsPath))"
-          Write-Host "Ruby will find: $(& where.exe msbuild.exe | Select-Object -First 1)"
+          Write-Host "Using MSBuild: $msbuildPath"
+          Write-Host "MSBuild version: $(& $msbuildPath -version | Select-Object -Last 1)"
           
           $LogDir = "${{ github.workspace }}/logs"
           New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
           $LLVMLog = "$LogDir/llvm_build.log"
 
           Write-Host ""
-          Write-Host "=== LLVM BUILD ===" 
+          Write-Host "Starting LLVM build..." 
           & ruby build_llvm.rb --config "$env:BUILD_CONFIG" 2>&1 | Tee-Object -FilePath $LLVMLog
           
           $exitCode = $LASTEXITCODE
