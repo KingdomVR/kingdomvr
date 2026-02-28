@@ -339,7 +339,8 @@ jobs:
             -G "Visual Studio 17 2022" \
             -A x64 \
             -DCEF_SUPPORT="$CEF_SUPPORT" \
-            -DBUGSPLAT_SUPPORT=OFF
+            -DBUGSPLAT_SUPPORT=OFF \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
 
       - name: Build gui_client (cmake --build)
         shell: bash
