@@ -124,13 +124,6 @@ jobs:
         with:
           path: work/substrata
 
-      - name: Checkout glare-core (KingdomVR fork) (reclone)
-        uses: actions/checkout@v4
-        with:
-          repository: KingdomVR/glare-core
-          ref: master
-          path: work/glare-core-kingdomvr
-
       - name: Checkout glare-core (JerryBerry12 fork) (reclone)
         uses: actions/checkout@v4
         with:
