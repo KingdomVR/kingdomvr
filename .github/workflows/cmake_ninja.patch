@@ -1,0 +1,19 @@
+--- a/scripts/cmake.rb
++++ b/scripts/cmake.rb
+@@ -83,7 +83,14 @@ class CMakeBuild
+ 			osx_args += " -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=\"10.8\"" # the sdk still needs to work on 10.8 during 4.4, even if the main indigo release targets 10.13 (because of Qt)
+ 		end
+ 
+ 		if OS.windows?
+-			win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
++			# Respect CMAKE_GENERATOR environment variable if set (e.g., for Ninja builds)
++			if ENV['CMAKE_GENERATOR']
++				puts "#{@build_name} CMake configure: Using CMAKE_GENERATOR from environment: #{ENV['CMAKE_GENERATOR']}"
++				# Don't set -G flag, let CMake use the environment variable
++				win_args = ENV['CMAKE_GENERATOR'].include?("Visual Studio") ? " -T \"#{getVSToolset()}\"" : ""
++			else
++				win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
++			end
+ 		end
+ 
+ 		Dir.chdir(@build_dir) do
