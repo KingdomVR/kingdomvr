@@ -73,6 +73,26 @@ jobs:
         with:
           arch: amd64
 
+      - name: Setup MSBuild path for Ruby scripts
+        shell: pwsh
+        run: |
+          # Find Visual Studio 2022 and add its MSBuild to PATH
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) {
+            Write-Error "Could not find Visual Studio 2022 installation"
+            exit 1
+          }
+          $msbuildPath = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+          if (-not (Test-Path $msbuildPath)) {
+            Write-Error "Could not find MSBuild at $msbuildPath"
+            exit 1
+          }
+          Write-Host "Found MSBuild at: $msbuildPath"
+          # Prepend MSBuild path to PATH so Ruby scripts use the correct one
+          $env:PATH = "$(Split-Path $msbuildPath)" + [System.IO.Path]::PathSeparator + $env:PATH
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
+
       - name: Install build prerequisites
         shell: pwsh
         run: |
