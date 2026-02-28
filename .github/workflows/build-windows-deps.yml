@@ -197,37 +197,13 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "=== LIBRESSL/JPEG BUILD ==="
-          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           
-          if (-not $vsPath) {
-            Write-Error "vswhere failed"; exit 1
-          }
+          # Force CMake to use Ninja generator instead of MSBuild to avoid .NET Framework MSBuild issues
+          $env:CMAKE_GENERATOR = "Ninja"
           
-          # Get the EXACT path to VS 2022 MSBuild.exe
-          $msbuildPath = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
-          if (-not (Test-Path $msbuildPath)) {
-            Write-Error "MSBuild.exe not found at $msbuildPath"; exit 1
-          }
-          
-          # Remove .NET Framework MSBuild from PATH completely by rebuilding PATH without it
-          $newPath = ($env:PATH -split [System.IO.Path]::PathSeparator | Where-Object { 
-            $_ -notlike "*Microsoft.NET\Framework*" 
-          }) -join [System.IO.Path]::PathSeparator
-          
-          # Prepend VS 2022 MSBuild directory as THE FIRST entry
-          $msbuildDir = Split-Path $msbuildPath
-          $env:PATH = "$msbuildDir" + [System.IO.Path]::PathSeparator + $newPath
-          
-          # Set all MSBuild environment variables
-          $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
-          $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
-          $env:VCTargetsPath = "$vsPath\MSBuild\Microsoft\VC\v170\"
-          
-          Write-Host "Using MSBuild: $msbuildPath"
-          Write-Host "First PATH entry: $msbuildDir"
-          Write-Host "Verify which msbuild: $(& where.exe msbuild.exe | Select-Object -First 1)"
-          Write-Host "Verify version: $(& $msbuildPath -version | Select-Object -Last 1)"
+          # Ensure cl.exe (MSVC compiler) is in PATH from previous msvc-dev-cmd setup
+          Write-Host "MSVC compiler: $(& where.exe cl.exe | Select-Object -First 1)"
+          Write-Host "Ninja: $(& where.exe ninja.exe | Select-Object -First 1)"
           
           $HeartbeatJob = Start-Job -ScriptBlock {
             while ($true) {
@@ -238,14 +214,14 @@ jobs:
           
           try {
             Write-Host ""
-            Write-Host "=== LIBRESSL BUILD ==="
+            Write-Host "=== LIBRESSL BUILD (using Ninja) ==="
             & ruby build_libressl.rb --config "$env:BUILD_CONFIG"
             if ($LASTEXITCODE -ne 0) { 
               Write-Error "LibreSSL FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE 
             }
             
             Write-Host ""
-            Write-Host "=== JPEG BUILD ==="
+            Write-Host "=== JPEG BUILD (using Ninja) ==="
             & ruby build_jpegturbo.rb --config "$env:BUILD_CONFIG"
             if ($LASTEXITCODE -ne 0) { 
               Write-Error "JPEG FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE 
@@ -263,37 +239,20 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "=== LLVM BUILD ==="
-          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           
-          if (-not $vsPath) { Write-Error "vswhere failed"; exit 1 }
+          # Force CMake to use Ninja generator
+          $env:CMAKE_GENERATOR = "Ninja"
           
-          # Get exact MSBuild path and remove .NET Framework versions from PATH
-          $msbuildPath = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
-          if (-not (Test-Path $msbuildPath)) {
-            Write-Error "MSBuild.exe not found at $msbuildPath"; exit 1
-          }
-          
-          $newPath = ($env:PATH -split [System.IO.Path]::PathSeparator | Where-Object { 
-            $_ -notlike "*Microsoft.NET\Framework*" 
-          }) -join [System.IO.Path]::PathSeparator
-          
-          $msbuildDir = Split-Path $msbuildPath
-          $env:PATH = "$msbuildDir" + [System.IO.Path]::PathSeparator + $newPath
-          
-          $env:MSBuildExtensionsPath = Join-Path $vsPath "MSBuild"
-          $env:MSBuildSDKsPath = Join-Path $vsPath "MSBuild\Current\SDKs"
-          $env:VCTargetsPath = "$vsPath\MSBuild\Microsoft\VC\v170\"
-          
-          Write-Host "Using MSBuild: $msbuildPath"
-          Write-Host "MSBuild version: $(& $msbuildPath -version | Select-Object -Last 1)"
+          Write-Host "Using Ninja generator to avoid MSBuild issues"
+          Write-Host "MSVC compiler: $(& where.exe cl.exe | Select-Object -First 1)"
+          Write-Host "Ninja: $(& where.exe ninja.exe | Select-Object -First 1)"
           
           $LogDir = "${{ github.workspace }}/logs"
           New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
           $LLVMLog = "$LogDir/llvm_build.log"
 
           Write-Host ""
-          Write-Host "Starting LLVM build..." 
+          Write-Host "Starting LLVM build with Ninja..." 
           & ruby build_llvm.rb --config "$env:BUILD_CONFIG" 2>&1 | Tee-Object -FilePath $LLVMLog
           
           $exitCode = $LASTEXITCODE
