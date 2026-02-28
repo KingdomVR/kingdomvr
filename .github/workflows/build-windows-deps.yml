@@ -137,6 +137,30 @@ jobs:
           Write-Host "Created MSBuild wrapper at: $wrapperBat"
           Write-Host "Updated PATH to include: $wrapperDir"
 
+      - name: Print and fix MSBuildExtensionsPath
+        shell: pwsh
+        run: |
+          # Diagnostic: Check current MSBuildExtensionsPath
+          Write-Host "Current MSBuildExtensionsPath: $env:MSBuildExtensionsPath"
+          
+          # Find VS 2022 installation
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $correctMSBuildPath = Join-Path $vsPath "MSBuild"
+          
+          Write-Host "Correct MSBuildExtensionsPath should be: $correctMSBuildPath"
+          
+          # Force correct path in environment
+          $env:MSBuildExtensionsPath = $correctMSBuildPath
+          Add-Content -Path $env:GITHUB_ENV -Value "MSBuildExtensionsPath=$correctMSBuildPath"
+          
+          # Also set MSBuildSDKsPath for completeness
+          $env:MSBuildSDKsPath = "$vsPath\MSBuild\Current\SDKs"
+          Add-Content -Path $env:GITHUB_ENV -Value "MSBuildSDKsPath=$($env:MSBuildSDKsPath)"
+          
+          Write-Host "✓ Set MSBuildExtensionsPath to: $correctMSBuildPath"
+          Write-Host "✓ Set MSBuildSDKsPath to: $($env:MSBuildSDKsPath)"
+
       - name: Install build prerequisites
         shell: pwsh
         run: |
