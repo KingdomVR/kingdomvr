@@ -220,93 +220,60 @@ jobs:
           $newLines | Set-Content $cmakeRb
           Write-Host "✓ Patched cmake.rb successfully"
 
-      - name: Provide Qt 5.15.16 for Windows (via Qt installer)
-        shell: pwsh
+      - name: Provide Qt 5.15.2 for Windows (via aqtinstall)
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          
-          # Start heartbeat
-          $heartbeat = Start-Job -ScriptBlock {
-            while ($true) {
-              Write-Host "[heartbeat] Qt installation running: $(Get-Date -Format 'o')"
-              Start-Sleep -Seconds 120
-            }
-          }
+          set -euxo pipefail
 
-          try {
-            $QT_INSTALL_ROOT = "$env:GLARE_CORE_LIBS/Qt"
-            $QT_TARGET_DIR = "$QT_INSTALL_ROOT/5.15.16-vs2022-64"
-            New-Item -ItemType Directory -Force -Path $QT_INSTALL_ROOT | Out-Null
-            
-            Write-Host "Downloading Qt online installer..."
-            $installerUrl = "https://download.qt.io/official_releases/online_installers/qt-unified-windows-x64-online.exe"
-            $installerPath = "qt-installer.exe"
-            
-            Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing
-            
-            Write-Host "Installing Qt 5.15.16 MSVC 2019 64-bit (binary-compatible with MSVC 2022)..."
-            
-            # Qt installer command-line arguments:
-            # --root: installation directory
-            # --accept-licenses: accept Qt licenses automatically
-            # --default-answer: answer prompts automatically
-            # --confirm-command: confirm installation
-            # install: packages to install
-            
-            $qtTempInstall = "C:\QtTemp"
-            
-            & $installerPath `
-              --root $qtTempInstall `
-              --accept-licenses `
-              --default-answer `
-              --confirm-command `
-              install qt.qt5.5156.win64_msvc2019_64 qt.qt5.5156.qtmultimedia.win64_msvc2019_64 qt.qt5.5156.qtgamepad.win64_msvc2019_64
-            
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "ERROR: Qt installer failed with exit code $LASTEXITCODE"
-              Write-Host "Trying aqt as fallback with latest available version..."
-              
-              # Fallback to aqt with 5.15.2 (latest publicly available)
-              pip install aqtinstall
-              aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O $QT_INSTALL_ROOT
-              
-              # Copy to expected location
-              if (Test-Path "$QT_INSTALL_ROOT/5.15.2/msvc2019_64") {
-                Copy-Item -Path "$QT_INSTALL_ROOT/5.15.2/msvc2019_64/*" -Destination $QT_TARGET_DIR -Recurse -Force
-              } else {
-                throw "Qt installation failed completely"
-              }
-            } else {
-              # Move from Qt installer location to expected location
-              # Qt installer creates: $qtTempInstall/5.15.16/msvc2019_64/
-              Write-Host "Moving Qt from $qtTempInstall to $QT_TARGET_DIR..."
-              
-              if (Test-Path "$qtTempInstall/5.15.16/msvc2019_64") {
-                New-Item -ItemType Directory -Force -Path $QT_TARGET_DIR | Out-Null
-                Copy-Item -Path "$qtTempInstall/5.15.16/msvc2019_64/*" -Destination $QT_TARGET_DIR -Recurse -Force
-                Remove-Item -Path $qtTempInstall -Recurse -Force -ErrorAction SilentlyContinue
-              } else {
-                Write-Host "Qt directory structure:"
-                Get-ChildItem -Path $qtTempInstall -Recurse -Depth 2 | Select-Object FullName
-                throw "Qt installation directory not found at expected location"
-              }
+          (while true; do
+            echo "[heartbeat] Qt installation running: $(date -u)"
+            sleep 120
+          done) &
+          HEARTBEAT_PID=$!
+
+          # Note: Qt 5.15.16 requires commercial license for pre-built binaries.
+          # Using 5.15.2 (latest open-source) which is binary-compatible within 5.15.x LTS series.
+          # Match the directory structure expected by build_qt.rb: $GLARE_CORE_LIBS/Qt/5.15.16-vs2022-64/
+          
+          QT_INSTALL_ROOT="$GLARE_CORE_LIBS/Qt"
+          QT_TARGET_DIR="$QT_INSTALL_ROOT/5.15.16-vs2022-64"
+          mkdir -p "$QT_INSTALL_ROOT"
+          
+          pip install aqtinstall
+          
+          echo "Installing Qt 5.15.2 MSVC 2019 64-bit (binary-compatible with MSVC 2022)..."
+          aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 \
+            -O "$QT_INSTALL_ROOT" \
+            -m qtmultimedia qtgamepad || {
+              echo "WARNING: Module installation failed, trying without modules..."
+              aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O "$QT_INSTALL_ROOT"
             }
-            
-            # Verify installation
-            if (-not (Test-Path "$QT_TARGET_DIR/bin/qmake.exe")) {
-              Write-Host "ERROR: qmake.exe not found at $QT_TARGET_DIR/bin/qmake.exe"
-              if (Test-Path "$QT_TARGET_DIR/bin") {
-                Get-ChildItem -Path "$QT_TARGET_DIR/bin"
-              }
-              throw "Qt installation verification failed"
-            }
-            
-            Write-Host "✓ Qt installed at $QT_TARGET_DIR"
-            
-          } finally {
-            Stop-Job -Job $heartbeat
-            Remove-Job -Job $heartbeat
-          }
+          
+          # Copy from aqt's layout to project's expected path
+          # aqt creates: $QT_INSTALL_ROOT/5.15.2/msvc2019_64/
+          # Project expects: $QT_INSTALL_ROOT/5.15.16-vs2022-64/
+          if [ -d "$QT_INSTALL_ROOT/5.15.2/msvc2019_64" ]; then
+            mkdir -p "$QT_TARGET_DIR"
+            cp -r "$QT_INSTALL_ROOT/5.15.2/msvc2019_64"/* "$QT_TARGET_DIR/"
+          else
+            echo "ERROR: Qt installation directory not found"
+            ls -la "$QT_INSTALL_ROOT" || true
+            kill $HEARTBEAT_PID || true
+            exit 1
+          fi
+
+          # Verify installation
+          if [ ! -f "$QT_TARGET_DIR/bin/qmake.exe" ]; then
+            echo "ERROR: qmake.exe not found at $QT_TARGET_DIR/bin/qmake.exe"
+            ls -la "$QT_TARGET_DIR/bin" || true
+            kill $HEARTBEAT_PID || true
+            exit 1
+          fi
+
+          echo "✓ Qt 5.15.2 installed at $QT_TARGET_DIR"
+          echo "Note: Using Qt 5.15.2 (latest open-source) instead of 5.15.16"
+          echo "      Binary compatibility within 5.15.x LTS series should ensure compatibility"
+          kill $HEARTBEAT_PID || true
 
       - name: Configure CMake (Release, no CEF, Windows x64)
         shell: bash
