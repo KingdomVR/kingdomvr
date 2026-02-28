@@ -276,7 +276,7 @@ jobs:
           kill $HEARTBEAT_PID || true
 
       - name: Download additional libraries (Luau, Jolt)
-        working-directory: work/glare-core/scripts
+        working-directory: work/substrata/scripts
         shell: bash
         run: |
           set -euxo pipefail
