@@ -220,7 +220,7 @@ jobs:
           $newLines | Set-Content $cmakeRb
           Write-Host "✓ Patched cmake.rb successfully"
 
-      - name: Provide Qt 5.15.16 for Windows via aqtinstall
+      - name: Provide Qt 5.15.x for Windows via aqtinstall
         shell: bash
         run: |
           set -euxo pipefail
@@ -236,30 +236,47 @@ jobs:
           QT_INSTALL_ROOT="$GLARE_CORE_LIBS/Qt"
           mkdir -p "$QT_INSTALL_ROOT"
 
-          # Install Qt 5.15.16 for Windows MSVC 2019 64-bit (binary-compatible with MSVC 2022).
-          # aqtinstall places files at: $QT_INSTALL_ROOT/5.15.16/msvc2019_64/
-          # CMakeLists.txt expects Qt at: $GLARE_CORE_LIBS/Qt/5.15.16-vs2022-64/
-          # (see: set(INDIGO_QT_DIR "${GLARE_CORE_LIBS_ENV}/Qt/${INDIGO_QT_VERSION}-vs${CYBERSPACE_VS_VER}-${CYBERSPACE_BITNESS}"))
-          aqt install-qt windows desktop 5.15.16 win64_msvc2019_64 \
+          # Try Qt 5.15.16 first, fall back to 5.15.15 if not available
+          QT_VERSION="5.15.16"
+          QT_ARCH="win64_msvc2019_64"
+          
+          echo "Attempting to install Qt $QT_VERSION..."
+          if ! aqt install-qt windows desktop "$QT_VERSION" "$QT_ARCH" \
             -O "$QT_INSTALL_ROOT" \
-            --modules qtmultimedia qtsvg qtgamepad qtwebsockets qtsensors qtserialport qtserialbus
+            --modules qtmultimedia qtsvg qtgamepad qtwebsockets qtsensors qtserialport qtserialbus 2>&1; then
+            echo "Qt $QT_VERSION not available, trying 5.15.15..."
+            QT_VERSION="5.15.15"
+            aqt install-qt windows desktop "$QT_VERSION" "$QT_ARCH" \
+              -O "$QT_INSTALL_ROOT" \
+              --modules qtmultimedia qtsvg qtgamepad qtwebsockets qtsensors qtserialport qtserialbus
+          fi
 
           # Rename from aqtinstall's layout to the path CMakeLists.txt expects.
           # The binaries are built for MSVC 2019 ABI but are fully binary-compatible with
           # MSVC 2022; Qt itself documents this compatibility for the 5.15 LTS series.
-          # CMakeLists.txt derives the Qt dir as:
-          #   ${GLARE_CORE_LIBS}/Qt/${INDIGO_QT_VERSION}-vs${CYBERSPACE_VS_VER}-${CYBERSPACE_BITNESS}
-          # which on this runner evaluates to: .../Qt/5.15.16-vs2022-64
-          mv "$QT_INSTALL_ROOT/5.15.16/msvc2019_64" "$QT_INSTALL_ROOT/5.15.16-vs2022-64"
-
-          if [ ! -f "$QT_INSTALL_ROOT/5.15.16-vs2022-64/bin/qmake.exe" ]; then
-            echo "qmake.exe not found - Qt install may have failed"
+          # aqtinstall places files at: $QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64/
+          # CMakeLists.txt expects Qt at: $GLARE_CORE_LIBS/Qt/5.15.16-vs2022-64/
+          # (see: set(INDIGO_QT_DIR "${GLARE_CORE_LIBS_ENV}/Qt/${INDIGO_QT_VERSION}-vs${CYBERSPACE_VS_VER}-${CYBERSPACE_BITNESS}"))
+          
+          # Create the expected directory structure (always named 5.15.16 even if we installed 5.15.15)
+          if [ -d "$QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64" ]; then
+            mkdir -p "$QT_INSTALL_ROOT/5.15.16-vs2022-64"
+            cp -r "$QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64"/* "$QT_INSTALL_ROOT/5.15.16-vs2022-64/"
+          else
+            echo "ERROR: Qt installation directory not found at $QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64"
             ls -la "$QT_INSTALL_ROOT" || true
             kill $HEARTBEAT_PID || true
             exit 1
           fi
 
-          echo "Qt 5.15.16 installed at $QT_INSTALL_ROOT/5.15.16-vs2022-64"
+          if [ ! -f "$QT_INSTALL_ROOT/5.15.16-vs2022-64/bin/qmake.exe" ]; then
+            echo "ERROR: qmake.exe not found - Qt install may have failed"
+            ls -la "$QT_INSTALL_ROOT" || true
+            kill $HEARTBEAT_PID || true
+            exit 1
+          fi
+
+          echo "✓ Qt installed at $QT_INSTALL_ROOT/5.15.16-vs2022-64"
           kill $HEARTBEAT_PID || true
 
       - name: Configure CMake (Release, no CEF, Windows x64)
