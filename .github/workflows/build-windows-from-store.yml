@@ -220,86 +220,93 @@ jobs:
           $newLines | Set-Content $cmakeRb
           Write-Host "✓ Patched cmake.rb successfully"
 
-      - name: Provide Qt 5.15.x for Windows via aqtinstall
-        shell: bash
+      - name: Provide Qt 5.15.16 for Windows (via Qt installer)
+        shell: pwsh
         run: |
-          set -euxo pipefail
-
-          (while true; do
-            echo "[heartbeat] qt install running: $(date -u)"
-            sleep 120
-          done) &
-          HEARTBEAT_PID=$!
-
-          pip install --upgrade aqtinstall
-
-          QT_INSTALL_ROOT="$GLARE_CORE_LIBS/Qt"
-          mkdir -p "$QT_INSTALL_ROOT"
-
-          # List available Qt 5.15.x versions and get the latest
-          echo "Listing available Qt 5.15.x versions..."
-          AVAILABLE_VERSIONS=$(aqt list-qt windows desktop 2>&1 | grep "^5\.15" | sort -V)
-          echo "All 5.15.x versions: $AVAILABLE_VERSIONS"
+          $ErrorActionPreference = "Stop"
           
-          # Get the last (newest) version from the list
-          QT_VERSION=$(echo "$AVAILABLE_VERSIONS" | tail -1)
-          QT_ARCH="win64_msvc2019_64"
-          
-          if [ -z "$QT_VERSION" ]; then
-            echo "ERROR: Could not determine available Qt 5.15.x version"
-            aqt list-qt windows desktop 2>&1 | head -30 || true
-            kill $HEARTBEAT_PID || true
-            exit 1
-          fi
-          
-          echo "Using Qt version: $QT_VERSION"
-          
-          # Check what modules are available for this version
-          echo "Checking available modules for Qt $QT_VERSION..."
-          AVAILABLE_MODULES=$(aqt list-qt windows desktop --modules "$QT_VERSION" "$QT_ARCH" 2>&1 || echo "")
-          echo "Available modules: $AVAILABLE_MODULES"
-          
-          # Build module list - only include modules that are likely available
-          # Most 5.15.x versions don't have all modules, so we'll be selective
-          MODULES="qtbase"
-          for mod in qtmultimedia qtsvg qtgamepad qtwebsockets qtsensors qtserialport qtserialbus; do
-            if echo "$AVAILABLE_MODULES" | grep -q "$mod"; then
-              MODULES="$MODULES $mod"
-            fi
-          done
-          
-          echo "Installing Qt $QT_VERSION with modules: $MODULES..."
-          aqt install-qt windows desktop "$QT_VERSION" "$QT_ARCH" \
-            -O "$QT_INSTALL_ROOT" \
-            -m $MODULES
+          # Start heartbeat
+          $heartbeat = Start-Job -ScriptBlock {
+            while ($true) {
+              Write-Host "[heartbeat] Qt installation running: $(Get-Date -Format 'o')"
+              Start-Sleep -Seconds 120
+            }
+          }
 
-          # Rename/copy from aqtinstall's layout to the path CMakeLists.txt expects.
-          # The binaries are built for MSVC 2019 ABI but are fully binary-compatible with
-          # MSVC 2022; Qt itself documents this compatibility for the 5.15 LTS series.
-          # aqtinstall places files at: $QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64/
-          # CMakeLists.txt expects Qt at: $GLARE_CORE_LIBS/Qt/5.15.16-vs2022-64/
-          # (see: set(INDIGO_QT_DIR "${GLARE_CORE_LIBS_ENV}/Qt/${INDIGO_QT_VERSION}-vs${CYBERSPACE_VS_VER}-${CYBERSPACE_BITNESS}"))
-          
-          # Always create as 5.15.16-vs2022-64 for consistency with build system
-          if [ -d "$QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64" ]; then
-            mkdir -p "$QT_INSTALL_ROOT/5.15.16-vs2022-64"
-            cp -r "$QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64"/* "$QT_INSTALL_ROOT/5.15.16-vs2022-64/"
-          else
-            echo "ERROR: Qt installation directory not found at $QT_INSTALL_ROOT/$QT_VERSION/msvc2019_64"
-            ls -la "$QT_INSTALL_ROOT" || true
-            kill $HEARTBEAT_PID || true
-            exit 1
-          fi
-
-          if [ ! -f "$QT_INSTALL_ROOT/5.15.16-vs2022-64/bin/qmake.exe" ]; then
-            echo "ERROR: qmake.exe not found - Qt install may have failed"
-            ls -la "$QT_INSTALL_ROOT" || true
-            kill $HEARTBEAT_PID || true
-            exit 1
-          fi
-
-          echo "✓ Qt $QT_VERSION installed at $QT_INSTALL_ROOT/5.15.16-vs2022-64"
-          kill $HEARTBEAT_PID || true
+          try {
+            $QT_INSTALL_ROOT = "$env:GLARE_CORE_LIBS/Qt"
+            $QT_TARGET_DIR = "$QT_INSTALL_ROOT/5.15.16-vs2022-64"
+            New-Item -ItemType Directory -Force -Path $QT_INSTALL_ROOT | Out-Null
+            
+            Write-Host "Downloading Qt online installer..."
+            $installerUrl = "https://download.qt.io/official_releases/online_installers/qt-unified-windows-x64-online.exe"
+            $installerPath = "qt-installer.exe"
+            
+            Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing
+            
+            Write-Host "Installing Qt 5.15.16 MSVC 2019 64-bit (binary-compatible with MSVC 2022)..."
+            
+            # Qt installer command-line arguments:
+            # --root: installation directory
+            # --accept-licenses: accept Qt licenses automatically
+            # --default-answer: answer prompts automatically
+            # --confirm-command: confirm installation
+            # install: packages to install
+            
+            $qtTempInstall = "C:\QtTemp"
+            
+            & $installerPath `
+              --root $qtTempInstall `
+              --accept-licenses `
+              --default-answer `
+              --confirm-command `
+              install qt.qt5.5156.win64_msvc2019_64 qt.qt5.5156.qtmultimedia.win64_msvc2019_64 qt.qt5.5156.qtgamepad.win64_msvc2019_64
+            
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "ERROR: Qt installer failed with exit code $LASTEXITCODE"
+              Write-Host "Trying aqt as fallback with latest available version..."
+              
+              # Fallback to aqt with 5.15.2 (latest publicly available)
+              pip install aqtinstall
+              aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O $QT_INSTALL_ROOT
+              
+              # Copy to expected location
+              if (Test-Path "$QT_INSTALL_ROOT/5.15.2/msvc2019_64") {
+                Copy-Item -Path "$QT_INSTALL_ROOT/5.15.2/msvc2019_64/*" -Destination $QT_TARGET_DIR -Recurse -Force
+              } else {
+                throw "Qt installation failed completely"
+              }
+            } else {
+              # Move from Qt installer location to expected location
+              # Qt installer creates: $qtTempInstall/5.15.16/msvc2019_64/
+              Write-Host "Moving Qt from $qtTempInstall to $QT_TARGET_DIR..."
+              
+              if (Test-Path "$qtTempInstall/5.15.16/msvc2019_64") {
+                New-Item -ItemType Directory -Force -Path $QT_TARGET_DIR | Out-Null
+                Copy-Item -Path "$qtTempInstall/5.15.16/msvc2019_64/*" -Destination $QT_TARGET_DIR -Recurse -Force
+                Remove-Item -Path $qtTempInstall -Recurse -Force -ErrorAction SilentlyContinue
+              } else {
+                Write-Host "Qt directory structure:"
+                Get-ChildItem -Path $qtTempInstall -Recurse -Depth 2 | Select-Object FullName
+                throw "Qt installation directory not found at expected location"
+              }
+            }
+            
+            # Verify installation
+            if (-not (Test-Path "$QT_TARGET_DIR/bin/qmake.exe")) {
+              Write-Host "ERROR: qmake.exe not found at $QT_TARGET_DIR/bin/qmake.exe"
+              if (Test-Path "$QT_TARGET_DIR/bin") {
+                Get-ChildItem -Path "$QT_TARGET_DIR/bin"
+              }
+              throw "Qt installation verification failed"
+            }
+            
+            Write-Host "✓ Qt installed at $QT_TARGET_DIR"
+            
+          } finally {
+            Stop-Job -Job $heartbeat
+            Remove-Job -Job $heartbeat
+          }
 
       - name: Configure CMake (Release, no CEF, Windows x64)
         shell: bash
