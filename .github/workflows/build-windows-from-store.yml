@@ -84,35 +84,28 @@ jobs:
           echo "Release assets:"
           echo "$REL_RESP" | jq -r '.assets[].name // empty'
 
-          ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.7z$")) | .name' | head -n1)
-          ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.7z$")) | .url' | head -n1)
+          # Preferred format: split 7z parts (.7z.001, .7z.002, ...)
+          FIRST_PART_NAME=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.7z\\.001$")) | .name' | head -n1)
 
-          # Fallback: try zip if .7z is not present.
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
-            ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.zip$")) | .name' | head -n1)
-            ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[] | select(.name | test("^kingdomvr-windows-deps-.*\\.zip$")) | .url' | head -n1)
+          if [ -n "$FIRST_PART_NAME" ] && [ "$FIRST_PART_NAME" != "null" ]; then
+            STEM="${FIRST_PART_NAME%.001}"
+            echo "Found split archive stem: $STEM"
+
+            echo "$REL_RESP" | jq -r --arg stem "$STEM" '.assets[] | select((.name | startswith($stem + ".")) and (.name | test("\\.7z\\.[0-9]{3}$"))) | [.name, .url] | @tsv' \
+              | sort \
+              | while IFS=$'\t' read -r part_name part_url; do
+                  DEST="${{ github.workspace }}/$part_name"
+                  echo "Downloading part: $part_name"
+                  curl -L -H "Authorization: token ${STORE_REPO_PAT}" -H "Accept: application/octet-stream" \
+                    -o "$DEST" "$part_url"
+                done
+
+            echo "downloaded_asset=${{ github.workspace }}/$FIRST_PART_NAME" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          # Final fallback: choose first non-source .7z/.zip asset if pattern match fails.
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
-            ASSET_NAME=$(echo "$REL_RESP" | jq -r '.assets[] | select(((.name | endswith(".7z")) or ((.name | endswith(".zip")) and (.name != "Source code (zip)"))) | .name' | head -n1)
-            ASSET_URL=$(echo "$REL_RESP" | jq -r '.assets[] | select(((.name | endswith(".7z")) or ((.name | endswith(".zip")) and (.name != "Source code (zip)"))) | .url' | head -n1)
-          fi
-
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
-            echo "No assets found in the selected deps release. Response:"
-            echo "$REL_RESP"
-            exit 1
-          fi
-
-          echo "Found asset: $ASSET_NAME"
-          DEST="${{ github.workspace }}/$ASSET_NAME"
-
-          # Download using the asset API url (requires Accept header)
-          curl -L -H "Authorization: token ${STORE_REPO_PAT}" -H "Accept: application/octet-stream" \
-            -o "$DEST" "$ASSET_URL"
-
-          echo "downloaded_asset=$DEST" >> "$GITHUB_OUTPUT"
+          echo "ERROR: No split Windows deps archive found. Expected assets matching: kingdomvr-windows-deps-*.7z.001"
+          exit 1
 
       - name: Extract archive into BASE_DIR
         shell: bash
@@ -122,10 +115,7 @@ jobs:
           ARCHIVE="${{ steps.download_asset.outputs.downloaded_asset }}"
           if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
             echo "Archive not found at $ARCHIVE - attempting fallback search"
-            ARCHIVE="$(ls "${GITHUB_WORKSPACE}"/*kingdomvr-windows-deps*.7z 2>/dev/null | head -n1 || true)"
-            if [ -z "$ARCHIVE" ]; then
-              ARCHIVE="$(ls "${GITHUB_WORKSPACE}"/*kingdomvr-windows-deps*.zip 2>/dev/null | head -n1 || true)"
-            fi
+            ARCHIVE="$(ls "${GITHUB_WORKSPACE}"/*kingdomvr-windows-deps*.7z.001 2>/dev/null | head -n1 || true)"
             echo "Fallback archive: $ARCHIVE"
           fi
           if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then

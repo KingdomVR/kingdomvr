@@ -360,19 +360,18 @@ jobs:
         shell: bash
         run: df -h || true
 
-      - name: Package freshly-created deps (7z, exclude source/build/Qt dirs)
+      - name: Package freshly-created deps (split 7z, exclude source/build/Qt dirs)
         id: package
         shell: bash
         run: |
           set -euxo pipefail
 
-          ARCHIVE_NAME="kingdomvr-windows-deps-${{ github.run_id }}.7z"
-          ARCHIVE_PATH="${{ github.workspace }}/$ARCHIVE_NAME"
+          ARCHIVE_STEM="${{ github.workspace }}/kingdomvr-windows-deps-${{ github.run_id }}.7z"
 
           # Archive BASE_DIR contents, excluding source, build, and Qt dirs.
-          # Use 7z compression to reduce size and avoid GitHub's 2GB per-asset limit.
+          # Use split 7z volumes to stay under GitHub's 2GB per-asset limit.
           cd "$BASE_DIR"
-          7z a -t7z -mx=9 "$ARCHIVE_PATH" . \
+          7z a -t7z -mx=9 -v1900m "$ARCHIVE_STEM" . \
             -xr!substrata \
             -xr!glare-core \
             -xr!substrata_build \
@@ -380,26 +379,27 @@ jobs:
             -xr!Qt \
             -xr!winter
 
-          ARCHIVE_SIZE_BYTES=$(wc -c < "$ARCHIVE_PATH")
-          MAX_BYTES=2147483647
-          echo "Archive size (bytes): $ARCHIVE_SIZE_BYTES"
-          if [ "$ARCHIVE_SIZE_BYTES" -gt "$MAX_BYTES" ]; then
-            echo "ERROR: Archive exceeds GitHub release asset limit (2GB)."
+          FIRST_PART="${ARCHIVE_STEM}.001"
+          if [ ! -f "$FIRST_PART" ]; then
+            echo "ERROR: First archive part not found at $FIRST_PART"
             exit 1
           fi
 
-          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-          echo "archive_name=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
+          PART_COUNT=$(ls -1 "${ARCHIVE_STEM}".* | wc -l)
+          echo "Created split archive parts: $PART_COUNT"
+          ls -lh "${ARCHIVE_STEM}".*
 
-      - name: Create release in private store repo and upload asset
+          echo "archive_stem=$ARCHIVE_STEM" >> "$GITHUB_OUTPUT"
+          echo "archive_first_part=$FIRST_PART" >> "$GITHUB_OUTPUT"
+
+      - name: Create release in private store repo and upload assets
         shell: bash
         env:
           STORE_REPO_PAT: ${{ secrets.STORE_REPO_PAT }}
         run: |
           set -euxo pipefail
 
-          ARCHIVE_PATH="${{ steps.package.outputs.archive_path }}"
-          ARCHIVE_NAME="${{ steps.package.outputs.archive_name }}"
+          ARCHIVE_STEM="${{ steps.package.outputs.archive_stem }}"
 
           TAG_INPUT="${{ github.event.inputs.tag_name }}"
           if [ -n "$TAG_INPUT" ]; then
@@ -424,18 +424,35 @@ jobs:
 
           UPLOAD_URL="${UPLOAD_URL%\{*}"
 
-          echo "Uploading asset ${ARCHIVE_NAME}"
-          UPLOAD_RESP=$(curl -s --data-binary @"${ARCHIVE_PATH}" \
-            -H "Authorization: token ${STORE_REPO_PAT}" \
-            -H "Content-Type: application/x-7z-compressed" \
-            "${UPLOAD_URL}?name=${ARCHIVE_NAME}")
-
-          echo "$UPLOAD_RESP" | jq -r .
-
-          ASSET_ID=$(echo "$UPLOAD_RESP" | jq -r '.id // empty')
-          if [ -z "$ASSET_ID" ]; then
-            echo "ERROR: Upload failed. GitHub did not return an asset id."
+          PART_FILES=$(ls -1 "${ARCHIVE_STEM}".* | sort)
+          if [ -z "$PART_FILES" ]; then
+            echo "ERROR: No archive parts found for stem ${ARCHIVE_STEM}"
             exit 1
           fi
 
-          echo "Uploaded ${ARCHIVE_NAME} to ${STORE_OWNER}/${STORE_REPO} (draft release ${TAG})."
+          for part in $PART_FILES; do
+            part_name="$(basename "$part")"
+            echo "Uploading asset ${part_name}"
+
+            PART_SIZE_BYTES=$(wc -c < "$part")
+            MAX_BYTES=2147483647
+            if [ "$PART_SIZE_BYTES" -gt "$MAX_BYTES" ]; then
+              echo "ERROR: Part ${part_name} exceeds GitHub release asset limit (2GB)."
+              exit 1
+            fi
+
+            UPLOAD_RESP=$(curl -s --data-binary @"${part}" \
+              -H "Authorization: token ${STORE_REPO_PAT}" \
+              -H "Content-Type: application/x-7z-compressed" \
+              "${UPLOAD_URL}?name=${part_name}")
+
+            echo "$UPLOAD_RESP" | jq -r .
+
+            ASSET_ID=$(echo "$UPLOAD_RESP" | jq -r '.id // empty')
+            if [ -z "$ASSET_ID" ]; then
+              echo "ERROR: Upload failed for ${part_name}. GitHub did not return an asset id."
+              exit 1
+            fi
+          done
+
+          echo "Uploaded split deps archive to ${STORE_OWNER}/${STORE_REPO} (draft release ${TAG})."
