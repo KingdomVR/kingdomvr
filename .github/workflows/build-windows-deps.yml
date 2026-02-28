@@ -114,16 +114,28 @@ jobs:
           $env:PATH = "$(Split-Path $msbuildPath)" + [System.IO.Path]::PathSeparator + $env:PATH
           Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
 
-      - name: Disable .NET Framework MSBuild to force VS 2022 MSBuild
+      - name: Create MSBuild wrapper to redirect to VS 2022
         shell: pwsh
         run: |
-          # Move the .NET Framework MSBuild out of the way so Ruby scripts don't find it
-          $netMsbuild = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe"
-          if (Test-Path $netMsbuild) {
-            $backup = "$netMsbuild.bak"
-            Write-Host "Moving $netMsbuild to $backup"
-            Move-Item -Path $netMsbuild -Destination $backup -Force
-          }
+          # Find VS 2022 MSBuild
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vs2022MsBuild = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+          
+          # Create a wrapper directory early in PATH
+          $wrapperDir = "${{ github.workspace }}\msbuild-wrapper"
+          New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
+          
+          # Create batch file wrapper that calls VS 2022 MSBuild
+          $wrapperBat = Join-Path $wrapperDir "msbuild.bat"
+          $batchContent = "@echo off`nREM Wrapper that redirects to VS 2022 MSBuild`n`"$vs2022MsBuild`" %*"
+          Set-Content -Path $wrapperBat -Value $batchContent
+          
+          # Add wrapper directory to front of PATH
+          $env:PATH = "$wrapperDir" + [System.IO.Path]::PathSeparator + $env:PATH
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
+          Write-Host "Created MSBuild wrapper at: $wrapperBat"
+          Write-Host "Updated PATH to include: $wrapperDir"
 
       - name: Install build prerequisites
         shell: pwsh
