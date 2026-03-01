@@ -109,11 +109,10 @@ class CMakeBuild
 				win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
 			end
 
-			# Allow forcing MSVC runtime selection from environment (e.g. /MD vs /MDd)
-			runtime_arg = ""
-			if ENV['CMAKE_MSVC_RUNTIME_LIBRARY'] && ENV['CMAKE_MSVC_RUNTIME_LIBRARY'] != ''
-				runtime_arg = " -DCMAKE_MSVC_RUNTIME_LIBRARY=#{ENV['CMAKE_MSVC_RUNTIME_LIBRARY']}"
-			end
+			# Force MSVC runtime selection to MultiThreadedDLL for Windows builds to avoid mixing
+			# debug CRT libraries into Release artifacts. This is intentional; to override,
+			# explicitly modify this script.
+			runtime_arg = " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
 		end
 
 		Dir.chdir(@build_dir) do
