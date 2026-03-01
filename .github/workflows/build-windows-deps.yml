@@ -197,6 +197,38 @@ jobs:
           mkdir -p "$CYBERSPACE_OUTPUT"
           mkdir -p "${{ github.workspace }}/logs"
 
+      - name: Ensure VS MSBuild & VCTargetsPath
+        shell: pwsh
+        run: |
+          Write-Host "Locating Visual Studio installation with C++ tools..."
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) {
+            Write-Error "Visual Studio with C++ components not found via vswhere"
+            exit 1
+          }
+
+          $msbuildDir = Join-Path $vsPath 'MSBuild\Current\Bin'
+          Write-Host "Prepending MSBuild directory to PATH: $msbuildDir"
+          $env:PATH = "$msbuildDir;" + $env:PATH
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$env:PATH"
+
+          $msBuildExt = Join-Path $vsPath 'MSBuild'
+          Write-Host "Setting MSBuildExtensionsPath to: $msBuildExt"
+          Add-Content -Path $env:GITHUB_ENV -Value "MSBuildExtensionsPath=$msBuildExt"
+          $env:MSBuildExtensionsPath = $msBuildExt
+
+          # Find newest MSVC tools folder and set VCTargetsPath
+          $msvcTools = Get-ChildItem (Join-Path $vsPath 'VC\Tools\MSVC') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $msvcTools) {
+            Write-Error "MSVC Tools folder not found under $vsPath\\VC\\Tools\\MSVC"
+            exit 1
+          }
+          $vcTargets = Join-Path $msvcTools.FullName 'VCTargets'
+          Write-Host "Setting VCTargetsPath = $vcTargets"
+          Add-Content -Path $env:GITHUB_ENV -Value "VCTargetsPath=$vcTargets"
+          $env:VCTargetsPath = $vcTargets
+
       - name: Build LibreSSL + libjpeg-turbo (Release only)
         working-directory: work/glare-core/scripts
         shell: pwsh
