@@ -243,6 +243,10 @@ jobs:
       - name: Build LibreSSL + libjpeg-turbo (Release only)
         working-directory: work/glare-core/scripts
         shell: pwsh
+        env:
+          CMAKE_GENERATOR: "Visual Studio 17 2022"
+          CMAKE_GENERATOR_PLATFORM: "x64"
+          CMAKE_GENERATOR_TOOLSET: "v143"
         run: |
           Write-Host "=== LIBRESSL/JPEG BUILD ==="
           
