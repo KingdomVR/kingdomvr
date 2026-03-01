@@ -216,7 +216,7 @@ jobs:
           $build = "${{ github.workspace }}\work\LibreSSL\libressl-3.5.2-x64-vs2022-build"
           $inst = "${{ github.workspace }}\work\LibreSSL\libressl-3.5.2-x64-vs2022-install"
           mkdir -Force $build | Out-Null
-          cmake $src -B $build -G "Visual Studio 17 2022" -A x64 -T v143 -DCMAKE_INSTALL_PREFIX:"$inst" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
+          cmake $src -B $build -G "Visual Studio 17 2022" -A x64 -T v143 -DCMAKE_INSTALL_PREFIX:STRING="$inst" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
           if ($LASTEXITCODE -ne 0) { Write-Error "cmake pre-configure failed"; exit $LASTEXITCODE }
 
           $msbuildDir = Join-Path $vsPath 'MSBuild\Current\Bin'
