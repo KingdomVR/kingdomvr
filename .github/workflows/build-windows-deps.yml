@@ -19,7 +19,6 @@ jobs:
 
     env:
       BASE_DIR: ${{ github.workspace }}/work
-
       # Glare build scripts expect these environment variables.
       GLARE_CORE_LIBS: ${{ github.workspace }}/work
       WINTER_DIR: ${{ github.workspace }}/work/winter
@@ -34,7 +33,7 @@ jobs:
       STORE_REPO_PAT: ${{ secrets.STORE_REPO_PAT }}
 
     steps:
-      - name: Fail if STORE_REPO_PAT not set
+      - name: Check STORE_REPO_PAT secret at runtime
         shell: bash
         run: |
           if [ -z "$STORE_REPO_PAT" ]; then
@@ -312,9 +311,11 @@ jobs:
             Write-Host ""
             Write-Host "=== JPEG BUILD (using Ninja) ==="
             & ruby build_jpegturbo.rb --config "$env:BUILD_CONFIG"
-            if ($LASTEXITCODE -ne 0) { 
-              Write-Error "JPEG FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE 
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "JPEG FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE
             }
+
+          
             
             Write-Host ""
             Write-Host "✓ Both builds succeeded"
@@ -323,6 +324,43 @@ jobs:
             Remove-Job $HeartbeatJob -ErrorAction SilentlyContinue
           }
 
+      - name: Patch work/glare-core/scripts/build_llvm.rb to force runtime and echo cmake configure
+        shell: pwsh
+        run: |
+          $file = "$env:GITHUB_WORKSPACE/work/glare-core/scripts/build_llvm.rb"
+          Write-Host "Patching $file for CI diagnostics and forcing CMAKE_MSVC_RUNTIME_LIBRARY..."
+          if (!(Test-Path $file)) { Write-Host "File not found: $file"; exit 0 }
+          $txt = Get-Content $file -Raw
+
+          $search = 'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)'
+          if ($txt -match [regex]::Escape($search)) {
+            $lines = @(
+              'puts "=== CI: cmake configure for LLVM ==="',
+              'puts "build_dir: #{build_dir}"',
+              'puts "cmake_args (before forcing runtime): #{cmake_args}"',
+              'unless cmake_args.include?("CMAKE_MSVC_RUNTIME_LIBRARY")',
+              '  cmake_args += " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"',
+              '  puts "CI: Appended CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL to cmake_args"',
+              'end',
+              'puts "cmake_args (after forcing runtime): #{cmake_args}"',
+              'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)',
+              'cache = File.join(build_dir, "CMakeCache.txt")',
+              'if File.exist?(cache)',
+              '  puts "---- CMakeCache.txt: CMAKE_MSVC_RUNTIME_LIBRARY entry ----"',
+              '  File.foreach(cache) { |l| puts l if l.include?("CMAKE_MSVC_RUNTIME_LIBRARY") }',
+              '  puts "---- Last 200 lines of CMakeCache.txt ----"',
+              '  puts File.read(cache).split("\\n").last(200).join("\\n")',
+              'else',
+              '  puts "CMakeCache.txt not found at #{cache}"',
+              'end'
+            )
+            $insert = $lines -join "`n"
+            $txt = $txt -replace [regex]::Escape($search), $insert
+            Set-Content -Path $file -Value $txt
+            Write-Host "Patched $file"
+          } else {
+            Write-Host "Pattern not found in $file; skipping patch"
+          }
       - name: Build LLVM (Release only, with log + observable progress)
         working-directory: work/glare-core/scripts
         shell: pwsh
@@ -356,40 +394,7 @@ jobs:
           Write-Host ""
           Write-Host "✓ LLVM build succeeded"
 
-      - name: Patch work/glare-core/scripts/build_llvm.rb to echo cmake configure and dump CMakeCache
-        shell: pwsh
-        run: |
-          $file = "work/glare-core/scripts/build_llvm.rb"
-          Write-Host "Patching $file for CI diagnostics..."
-          if (!(Test-Path $file)) {
-            Write-Host "File not found: $file"; exit 0
-          }
-          $txt = Get-Content $file -Raw
 
-          $search = 'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)'
-          if ($txt -match [regex]::Escape($search)) {
-            $lines = @(
-              'puts "=== CI: cmake configure for LLVM ==="',
-              'puts "build_dir: #{build_dir}"',
-              'puts "cmake_args: #{cmake_args}"',
-              'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)',
-              'cache = File.join(build_dir, "CMakeCache.txt")',
-              'if File.exist?(cache)',
-              '  puts "---- CMakeCache.txt: CMAKE_MSVC_RUNTIME_LIBRARY entry ----"',
-              '  File.foreach(cache) { |l| puts l if l.include?("CMAKE_MSVC_RUNTIME_LIBRARY") }',
-              '  puts "---- Last 200 lines of CMakeCache.txt ----"',
-              '  puts File.read(cache).split("\\n").last(200).join("\\n")',
-              'else',
-              '  puts "CMakeCache.txt not found at #{cache}"',
-              'end'
-            )
-            $insert = $lines -join "`n"
-            $txt = $txt -replace [regex]::Escape($search), $insert
-            Set-Content -Path $file -Value $txt
-            Write-Host "Patched $file"
-          } else {
-            Write-Host "Pattern not found in $file; skipping patch"
-          }
 
       - name: Pre-check LLVM build configuration
         shell: pwsh
