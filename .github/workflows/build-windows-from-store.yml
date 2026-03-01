@@ -268,7 +268,7 @@ jobs:
       - name: Force MSVC runtime flag in work/glare-core/scripts/cmake.rb
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE/.github/scripts/ensure_cmake_runtime.ps1" "$env:GITHUB_WORKSPACE/work/glare-core/scripts/cmake.rb"
+          & "$env:GITHUB_WORKSPACE/work/substrata/.github/scripts/ensure_cmake_runtime.ps1" "$env:GITHUB_WORKSPACE/work/glare-core/scripts/cmake.rb"
 
       - name: Provide Qt 5.15.2 for Windows (via aqtinstall)
         shell: bash
