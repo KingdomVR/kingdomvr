@@ -12,13 +12,11 @@ $targets = @(
 )
 
 $snippet = @"
-# Ensure MSVC runtime set to MultiThreadedDLL and build type set to Release
-unless cmake_args.include?("CMAKE_MSVC_RUNTIME_LIBRARY")
-    cmake_args += " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
-end
-unless cmake_args.include?("CMAKE_BUILD_TYPE")
-    cmake_args += " -DCMAKE_BUILD_TYPE=Release"
-end
+# Force MSVC runtime and build type into cmake_args deterministically
+# Remove any existing occurrences, then append explicit desired values.
+cmake_args = cmake_args.gsub(/-DCMAKE_MSVC_RUNTIME_LIBRARY=[^\s]+/, '')
+cmake_args = cmake_args.gsub(/-DCMAKE_BUILD_TYPE=[^\s]+/, '')
+cmake_args += ' -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL -DCMAKE_BUILD_TYPE=Release'
 "@
 
 foreach ($f in $targets) {
@@ -56,6 +54,26 @@ foreach ($f in $targets) {
                 $newTxt = [regex]::Replace($txt, $pattern3, $replacement)
                 if ($newTxt -ne $txt) { Set-Content -Path $path -Value $newTxt; Write-Host "Patched $path (before cmake_build.configure)"; $patched = $true }
             }
+                        # Also inject a post-configure check that fails the script if CMake configured Debug
+                        $ruby_check = @'
+# CI-inserted check: ensure CMake configured Release build type
+cache_file = File.join(build_dir, "CMakeCache.txt")
+if File.exist?(cache_file)
+    cache = File.read(cache_file)
+    if cache =~ /CMAKE_BUILD_TYPE:STRING=Debug/
+        STDERR.puts "ERROR: CMake configured with Debug build type; aborting."
+        exit(1)
+    end
+else
+    STDERR.puts "WARNING: CMakeCache not found to verify build type."
+end
+'@
+
+                        $pattern4 = "(?m)(^\s*cmake_build\.configure\([^\n]*\))"
+                        if ([regex]::IsMatch($txt, $pattern4)) {
+                                $newTxt2 = [regex]::Replace($txt, $pattern4, "$&`n$ruby_check", 1)
+                                if ($newTxt2 -ne $txt) { Set-Content -Path $path -Value $newTxt2; Write-Host "Patched $path (post-configure check)"; $patched = $true }
+                        }
         }
 
         # Prefer inserting before a Dir.chdir(@build_dir) block if present
