@@ -259,6 +259,44 @@ jobs:
           $newLines | Set-Content $cmakeRb
           Write-Host "✓ Patched cmake.rb successfully"
 
+      - name: Force MSVC runtime flag in work/glare-core/scripts/cmake.rb
+        shell: pwsh
+        run: |
+          $cmakeRb = "work/glare-core/scripts/cmake.rb"
+          Write-Host "Patching $cmakeRb to force MultiThreadedDLL runtime..."
+          $txt = Get-Content $cmakeRb -Raw
+          $pattern = 'win_args = " -G \\\"#\{getVSGenerator\(\)\}\\\" -T \\\"#\{getVSToolset\(\)\}\\\""'
+          $lines = @(
+            '# Allow overriding generator via environment (useful in CI).',
+            "if ENV['CMAKE_GENERATOR'] && ENV['CMAKE_GENERATOR'] != ''",
+            '  gen = ENV[\'CMAKE_GENERATOR\']',
+            '  # If generator is a Visual Studio generator, still pass toolset',
+            '  if gen.include?("Visual Studio")',
+            '    win_args = " -G \\\"#{gen}\\\" -T \\\"#{getVSToolset()}\\\""',
+            '  else',
+            '    win_args = " -G \\\"#{gen}\\\""',
+            '  end',
+            'else',
+            '  win_args = " -G \\\"#{getVSGenerator()}\\\" -T \\\"#{getVSToolset()}\\\""',
+            'end',
+            '',
+            '# Force MSVC runtime selection to MultiThreadedDLL for Windows builds to avoid mixing',
+            '# debug CRT libraries into Release artifacts.',
+            'runtime_arg = " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"'
+          )
+          $replacement = $lines -join "`n"
+
+          if ($txt -match $pattern) {
+            $txt = $txt -replace $pattern, [System.Text.RegularExpressions.Regex]::Escape($replacement)
+            $txt = $txt -replace [System.Text.RegularExpressions.Regex]::Escape($pattern), $replacement
+            Set-Content -Path $cmakeRb -Value $txt
+            Write-Host "Patched runtime flag into $cmakeRb"
+          } else {
+            Write-Host "Pattern not found; appending runtime flag logic near OS.windows? block"
+            (Get-Content $cmakeRb) -replace 'if OS.windows\?\s*\n[ \t]*win_args = .*', $replacement | Set-Content $cmakeRb
+            Write-Host "Appended replacement"
+          }
+
       - name: Provide Qt 5.15.2 for Windows (via aqtinstall)
         shell: bash
         run: |

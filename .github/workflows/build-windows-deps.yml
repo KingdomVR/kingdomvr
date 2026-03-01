@@ -143,6 +143,46 @@ jobs:
           $newLines | Set-Content $cmakeRb
           Write-Host "✓ Patched cmake.rb successfully"
 
+      - name: Force MSVC runtime flag in work/glare-core/scripts/cmake.rb
+        shell: pwsh
+        run: |
+          $cmakeRb = "work/glare-core/scripts/cmake.rb"
+          Write-Host "Patching $cmakeRb to force MultiThreadedDLL runtime..."
+          $txt = Get-Content $cmakeRb -Raw
+          $pattern = 'win_args = " -G \\\"#\{getVSGenerator\(\)\}\\\" -T \\\"#\{getVSToolset\(\)\}\\\""'
+          $lines = @(
+            '# Allow overriding generator via environment (useful in CI).',
+            "if ENV['CMAKE_GENERATOR'] && ENV['CMAKE_GENERATOR'] != ''",
+            '  gen = ENV[\'CMAKE_GENERATOR\']',
+            '  # If generator is a Visual Studio generator, still pass toolset',
+            '  if gen.include?("Visual Studio")',
+            '    win_args = " -G \\\"#{gen}\\\" -T \\\"#{getVSToolset()}\\\""',
+            '  else',
+            '    win_args = " -G \\\"#{gen}\\\""',
+            '  end',
+            'else',
+            '  win_args = " -G \\\"#{getVSGenerator()}\\\" -T \\\"#{getVSToolset()}\\\""',
+            'end',
+            '',
+            '# Force MSVC runtime selection to MultiThreadedDLL for Windows builds to avoid mixing',
+            '# debug CRT libraries into Release artifacts.',
+            'runtime_arg = " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"'
+          )
+          $replacement = $lines -join "`n"
+
+          if ($txt -match $pattern) {
+            $txt = $txt -replace $pattern, [System.Text.RegularExpressions.Regex]::Escape($replacement)
+            # The replacement was escaped; instead insert by splitting around the original match.
+            $txt = $txt -replace [System.Text.RegularExpressions.Regex]::Escape($pattern), $replacement
+            Set-Content -Path $cmakeRb -Value $txt
+            Write-Host "Patched runtime flag into $cmakeRb"
+          } else {
+            Write-Host "Pattern not found; appending runtime flag logic near OS.windows? block"
+            # Try a more flexible match that accepts spaces or tabs for indentation
+            (Get-Content $cmakeRb) -replace 'if OS.windows\?\s*\n[ \t]*win_args = .*', $replacement | Set-Content $cmakeRb
+            Write-Host "Appended replacement"
+          }
+
       - name: Show runner + disk info (before)
         shell: bash
         run: |
@@ -349,6 +389,41 @@ jobs:
           
           Write-Host ""
           Write-Host "✓ LLVM build succeeded"
+
+      - name: Patch work/glare-core/scripts/build_llvm.rb to echo cmake configure and dump CMakeCache
+        shell: pwsh
+        run: |
+          $file = "work/glare-core/scripts/build_llvm.rb"
+          Write-Host "Patching $file for CI diagnostics..."
+          if (!(Test-Path $file)) {
+            Write-Host "File not found: $file"; exit 0
+          }
+          $txt = Get-Content $file -Raw
+
+          $search = 'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)'
+          if ($txt -match [regex]::Escape($search)) {
+            $lines = @(
+              'puts "=== CI: cmake configure for LLVM ==="',
+              'puts "build_dir: #{build_dir}"',
+              'puts "cmake_args: #{cmake_args}"',
+              'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)',
+              'cache = File.join(build_dir, "CMakeCache.txt")',
+              'if File.exist?(cache)',
+              '  puts "---- CMakeCache.txt: CMAKE_MSVC_RUNTIME_LIBRARY entry ----"',
+              '  File.foreach(cache) { |l| puts l if l.include?("CMAKE_MSVC_RUNTIME_LIBRARY") }',
+              '  puts "---- Last 200 lines of CMakeCache.txt ----"',
+              '  puts File.read(cache).split("\\n").last(200).join("\\n")',
+              'else',
+              '  puts "CMakeCache.txt not found at #{cache}"',
+              'end'
+            )
+            $insert = $lines -join "`n"
+            $txt = $txt -replace [regex]::Escape($search), $insert
+            Set-Content -Path $file -Value $txt
+            Write-Host "Patched $file"
+          } else {
+            Write-Host "Pattern not found in $file; skipping patch"
+          }
 
       - name: Pre-check LLVM build configuration
         shell: pwsh
