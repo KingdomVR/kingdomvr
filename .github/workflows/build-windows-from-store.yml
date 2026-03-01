@@ -255,7 +255,7 @@ jobs:
           
           echo "✓ Additional libraries downloaded"
 
-    # ---- Debug: Check CRT linkage of installed dependency libs and CMake runtime cache ----
+      # ---- Debug: Check CRT linkage of installed dependency libs and CMake runtime cache ----
 
       - name: Debug CRT linkage (check installed libs for debug CRT)
         shell: pwsh
@@ -331,20 +331,6 @@ jobs:
             exit 1
           }
 
-      - name: Create cmake wrapper to force x64 when Visual Studio generator used
-        shell: pwsh
-        run: |
-          $real = (& where.exe cmake.exe) | Select-Object -First 1
-          if (-not $real) { Write-Error "cmake not found in PATH"; exit 1 }
-          $wrapperDir = "${{ github.workspace }}\cmake-wrapper"
-          New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
-          $wrapperBat = Join-Path $wrapperDir "cmake.bat"
-          $content = "@echo off`r`nset REAL_CMAKE=$real`r`nset ALLARGS=%*`r`nrem If generator is Visual Studio 17 and no -A present, append -A x64`r`necho %ALLARGS% | findstr /i /c:\"-G \"Visual Studio 17\" >nul`r`nif %errorlevel%==0 (`r`n  echo %ALLARGS% | findstr /i /c:\" -A \" >nul`r`n  if %errorlevel%==1 (`r`n    "%REAL_CMAKE%" %ALLARGS% -A x64`r`n    exit /b %ERRORLEVEL%`r`n  )`r`n)`r`n" + '"%REAL_CMAKE%" %ALLARGS%`r`nexit /b %ERRORLEVEL%'
-          Set-Content -Path $wrapperBat -Value $content -Encoding ASCII
-          Write-Host "Created cmake wrapper at: $wrapperBat"
-          $env:PATH = "$wrapperDir;" + $env:PATH
-          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
-
           $msbuildDir = Join-Path $vsPath 'MSBuild\Current\Bin'
           Write-Host "Prepending MSBuild directory to PATH: $msbuildDir"
           $env:PATH = "$msbuildDir;" + $env:PATH
@@ -376,6 +362,38 @@ jobs:
             Add-Content -Path $env:GITHUB_ENV -Value "VCTargetsPath=$vcTargets"
             $env:VCTargetsPath = $vcTargets
           }
+
+      - name: Create cmake wrapper to force x64 when Visual Studio generator used
+        shell: pwsh
+        run: |
+          $real = (& where.exe cmake.exe) | Select-Object -First 1
+          if (-not $real) { Write-Error "cmake not found in PATH"; exit 1 }
+          $wrapperDir = "${{ github.workspace }}\cmake-wrapper"
+          New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
+          $wrapperBat = Join-Path $wrapperDir "cmake.bat"
+          $content = @'
+          @echo off
+          set REAL_CMAKE=__REAL_CMAKE__
+          set ALLARGS=%*
+          rem If generator mentions Visual Studio 17 and no -A present, append -A x64
+          echo %ALLARGS% | findstr /i /c:"Visual Studio 17" >nul
+          if %errorlevel%==0 (
+            echo %ALLARGS% | findstr /i /c:" -A " >nul
+            if %errorlevel%==1 (
+              "%REAL_CMAKE%" %ALLARGS% -A x64
+              exit /b %ERRORLEVEL%
+            )
+          )
+          "%REAL_CMAKE%" %ALLARGS%
+          exit /b %ERRORLEVEL%
+          '@
+          $content = $content -replace '__REAL_CMAKE__', $real
+          Set-Content -Path $wrapperBat -Value $content -Encoding ASCII
+          Write-Host "Created cmake wrapper at: $wrapperBat"
+          $env:PATH = "$wrapperDir;" + $env:PATH
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
+
+          
 
       - name: Configure CMake (Release, no CEF, Windows x64)
         shell: bash
@@ -482,7 +500,7 @@ jobs:
           echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact (short retention)
-        if: ${{ inputs.create_release != 'true' }}
+        if: ${{ github.event.inputs.create_release != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: windows-gui-client
@@ -490,20 +508,20 @@ jobs:
           retention-days: 1
 
       - name: Validate release inputs
-        if: ${{ inputs.create_release == 'true' }}
+        if: ${{ github.event.inputs.create_release == 'true' }}
         shell: bash
         run: |
-          if [ -z "${{ inputs.tag_name }}" ]; then
+          if [ -z "${{ github.event.inputs.tag_name }}" ]; then
             echo "tag_name is required when create_release=true"
             exit 1
           fi
 
       - name: Create GitHub Release (draft) and upload asset
-        if: ${{ inputs.create_release == 'true' }}
+        if: ${{ github.event.inputs.create_release == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag_name }}
-          name: ${{ inputs.tag_name }}
+          tag_name: ${{ github.event.inputs.tag_name }}
+          name: ${{ github.event.inputs.tag_name }}
           draft: true
           generate_release_notes: true
           files: ${{ steps.package.outputs.zip_path }}
