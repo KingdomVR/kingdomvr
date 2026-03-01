@@ -330,33 +330,70 @@ jobs:
           
           echo "✓ Additional libraries downloaded"
 
-    # ---- Debug: Show CRT linkage of all extracted .lib files and check CMake cache after config ----
+    # ---- Debug: Check CRT linkage of installed dependency libs and CMake runtime cache ----
 
-      - name: Debug CRT linkage (dump CRT for all libs)
+      - name: Debug CRT linkage (check installed libs for debug CRT)
         shell: pwsh
         run: |
-          Write-Host "=== Dumping CRT linkage for all .lib files in deps ==="
+          Write-Host "=== Checking CRT linkage for installed dependency .lib files ==="
+
+          $llvmInstallLibDirs = @()
+          if (Test-Path "$env:BASE_DIR\\llvm") {
+            $llvmInstallLibDirs = Get-ChildItem "$env:BASE_DIR\\llvm" -Directory -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like "*_install_vs2022_64" } |
+              ForEach-Object { Join-Path $_.FullName "lib" } |
+              Where-Object { Test-Path $_ }
+          }
+
           $depsDirs = @(
-            "$env:BASE_DIR\\llvm", 
-            "$env:BASE_DIR\\libjpeg-turbo", 
-            "$env:BASE_DIR\\LibreSSL"
-          )
+            $llvmInstallLibDirs
+            "$env:BASE_DIR\\libjpeg-turbo\\libjpeg-turbo-3.0.0-vs2022-install\\lib"
+            "$env:BASE_DIR\\LibreSSL\\libressl-3.5.2-x64-vs2022-install\\lib"
+          ) | Where-Object { Test-Path $_ }
+
+          if ($depsDirs.Count -eq 0) {
+            Write-Host "No dependency lib directories found to scan."
+            exit 0
+          }
+
+          Write-Host "Scanning directories:"
+          $depsDirs | ForEach-Object { Write-Host " - $_" }
+
+          $debugCrtPattern = 'MSVCRTD|MSVCPRTD|LIBCMTD|UCRTD|VCRUNTIMED|msvcrtd|msvcprtd|libcmtd|ucrtd|vcruntimed'
+          $offenders = @()
+
           foreach ($dir in $depsDirs) {
-            if (Test-Path $dir) {
-              Write-Host "`n---- Scanning: $dir ----"
-              Get-ChildItem -Recurse $dir -Filter *.lib | ForEach-Object {
-                Write-Host "`n$file"
-                $file = $_.FullName
-                try {
-                  & dumpbin /directives $file | Select-String 'DEFAULTLIB'
-                } catch {
-                  Write-Host "  (failed dumpbin on $file)"
+            Write-Host "`n---- Scanning: $dir ----"
+            Get-ChildItem -Recurse $dir -Filter *.lib -File -ErrorAction SilentlyContinue | ForEach-Object {
+              $file = $_.FullName
+              try {
+                $defaultLibLines = & dumpbin /directives $file 2>$null | Select-String 'DEFAULTLIB' | ForEach-Object { $_.Line }
+                if ($defaultLibLines) {
+                  $debugMatches = $defaultLibLines | Select-String $debugCrtPattern
+                  if ($debugMatches) {
+                    $offenders += [PSCustomObject]@{
+                      File = $file
+                      DebugDirectives = (($debugMatches | ForEach-Object { $_.Line.Trim() } | Select-Object -Unique) -join '; ')
+                    }
+                  }
                 }
+              } catch {
+                Write-Host "  (failed dumpbin on $file)"
               }
-            } else {
-              Write-Host "Dir not found: $dir"
             }
           }
+
+          if ($offenders.Count -gt 0) {
+            Write-Host "`nFound $($offenders.Count) libraries with debug CRT directives (showing up to 80):"
+            $offenders | Select-Object -First 80 | ForEach-Object {
+              Write-Host " - $($_.File)"
+              Write-Host "   $($_.DebugDirectives)"
+            }
+            Write-Host "`nERROR: Release build cannot link against debug CRT libraries. Use a release-built deps archive."
+            exit 1
+          }
+
+          Write-Host "✓ No debug CRT directives found in installed dependency libraries"
 
       - name: Configure CMake (Release, no CEF, Windows x64)
         shell: bash
