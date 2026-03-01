@@ -12,6 +12,9 @@ $insertion = @"
 unless cmake_args.include?("CMAKE_MSVC_RUNTIME_LIBRARY")
   cmake_args += " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
 end
+unless cmake_args.include?("CMAKE_BUILD_TYPE")
+    cmake_args += " -DCMAKE_BUILD_TYPE=Release"
+end
 "@
 
 $pattern = "(?m)(^\s*Dir\.chdir\(@build_dir\) do)"

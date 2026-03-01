@@ -113,10 +113,14 @@ class CMakeBuild
 			# debug CRT libraries into Release artifacts. This is intentional; to override,
 			# explicitly modify this script.
 			runtime_arg = " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
+			# Force build type to Release by default (useful for single-config generators like Ninja).
+			# This is harmless for multi-config generators (Visual Studio) where the config
+			# is selected at build time, but helps ensure Release flags for single-config.
+			build_type_arg = " -DCMAKE_BUILD_TYPE=Release"
 		end
 
 		Dir.chdir(@build_dir) do
-			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args} #{runtime_arg} #{cmake_args}")
+			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args} #{runtime_arg}#{build_type_arg} #{cmake_args}")
 		end
 	end
 	
