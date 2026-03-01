@@ -96,11 +96,28 @@ class CMakeBuild
 		end
 
 		if OS.windows?
-			win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
+			# Allow overriding generator via environment (useful in CI).
+			if ENV['CMAKE_GENERATOR'] && ENV['CMAKE_GENERATOR'] != ''
+				gen = ENV['CMAKE_GENERATOR']
+				# If generator is a Visual Studio generator, still pass toolset
+				if gen.include?("Visual Studio")
+					win_args = " -G \"#{gen}\" -T \"#{getVSToolset()}\""
+				else
+					win_args = " -G \"#{gen}\""
+				end
+			else
+				win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
+			end
+
+			# Allow forcing MSVC runtime selection from environment (e.g. /MD vs /MDd)
+			runtime_arg = ""
+			if ENV['CMAKE_MSVC_RUNTIME_LIBRARY'] && ENV['CMAKE_MSVC_RUNTIME_LIBRARY'] != ''
+				runtime_arg = " -DCMAKE_MSVC_RUNTIME_LIBRARY=#{ENV['CMAKE_MSVC_RUNTIME_LIBRARY']}"
+			end
 		end
 
 		Dir.chdir(@build_dir) do
-			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args} #{cmake_args}")
+			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args} #{runtime_arg} #{cmake_args}")
 		end
 	end
 	

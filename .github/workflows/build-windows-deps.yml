@@ -350,6 +350,83 @@ jobs:
           Write-Host ""
           Write-Host "✓ LLVM build succeeded"
 
+      - name: Pre-check LLVM build configuration
+        shell: pwsh
+        run: |
+          Write-Host "=== PRE-CHECK: LLVM build configuration ==="
+          Write-Host "BUILD_CONFIG = '$env:BUILD_CONFIG'"
+          if ($env:BUILD_CONFIG -match '^(Debug|SDKDebug)$') {
+            Write-Error "Refusing to build LLVM in Debug/SDKDebug configuration: $env:BUILD_CONFIG"
+            exit 1
+          }
+          Write-Host "CMAKE_GENERATOR = '$env:CMAKE_GENERATOR'"
+          if (-not $env:CMAKE_MSVC_RUNTIME_LIBRARY) {
+            Write-Host "CMAKE_MSVC_RUNTIME_LIBRARY not set; cmake.rb may choose default runtime."
+          } else {
+            Write-Host "CMAKE_MSVC_RUNTIME_LIBRARY = '$env:CMAKE_MSVC_RUNTIME_LIBRARY'"
+          }
+          Write-Host "Pre-check passed: proceeding to LLVM build"
+
+      - name: Verify LLVM install libs use release CRT
+        shell: pwsh
+        run: |
+          Write-Host "=== VERIFY LLVM CRT LINKAGE ==="
+
+          $llvmRoot = "$env:BASE_DIR\\llvm"
+          if (-not (Test-Path $llvmRoot)) {
+            Write-Error "LLVM root not found: $llvmRoot"
+            exit 1
+          }
+
+          $installLibDirs = Get-ChildItem $llvmRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "*_install_vs2022_64" } |
+            ForEach-Object { Join-Path $_.FullName "lib" } |
+            Where-Object { Test-Path $_ }
+
+          if (-not $installLibDirs -or $installLibDirs.Count -eq 0) {
+            Write-Error "No LLVM install lib directories found under $llvmRoot"
+            Get-ChildItem $llvmRoot -Directory -ErrorAction SilentlyContinue | Select-Object FullName
+            exit 1
+          }
+
+          Write-Host "Scanning install lib dirs:"
+          $installLibDirs | ForEach-Object { Write-Host " - $_" }
+
+          $debugCrtPattern = 'MSVCRTD|MSVCPRTD|LIBCMTD|UCRTD|VCRUNTIMED|msvcrtd|msvcprtd|libcmtd|ucrtd|vcruntimed'
+          $offenders = @()
+
+          foreach ($libDir in $installLibDirs) {
+            Get-ChildItem -Recurse $libDir -Filter *.lib -File -ErrorAction SilentlyContinue | ForEach-Object {
+              $libFile = $_.FullName
+              try {
+                $defaultLibLines = & dumpbin /directives $libFile 2>$null | Select-String 'DEFAULTLIB' | ForEach-Object { $_.Line }
+                if ($defaultLibLines) {
+                  $debugMatches = $defaultLibLines | Select-String $debugCrtPattern
+                  if ($debugMatches) {
+                    $offenders += [PSCustomObject]@{
+                      File = $libFile
+                      DebugDirectives = (($debugMatches | ForEach-Object { $_.Line.Trim() } | Select-Object -Unique) -join '; ')
+                    }
+                  }
+                }
+              } catch {
+                Write-Host "  (failed dumpbin on $libFile)"
+              }
+            }
+          }
+
+          if ($offenders.Count -gt 0) {
+            Write-Host "Found $($offenders.Count) LLVM install libs with debug CRT directives (showing up to 80):"
+            $offenders | Select-Object -First 80 | ForEach-Object {
+              Write-Host " - $($_.File)"
+              Write-Host "   $($_.DebugDirectives)"
+            }
+            Write-Error "LLVM install artifacts are not Release CRT-compatible; refusing to package deps."
+            exit 1
+          }
+
+          Write-Host "✓ LLVM install libs appear release CRT-compatible"
+
       - name: Get additional libs used by Substrata
         working-directory: work/substrata/scripts
         shell: bash
