@@ -330,6 +330,34 @@ jobs:
           
           echo "✓ Additional libraries downloaded"
 
+    # ---- Debug: Show CRT linkage of all extracted .lib files and check CMake cache after config ----
+
+      - name: Debug CRT linkage (dump CRT for all libs)
+        shell: pwsh
+        run: |
+          Write-Host "=== Dumping CRT linkage for all .lib files in deps ==="
+          $depsDirs = @(
+            "$env:BASE_DIR\\llvm", 
+            "$env:BASE_DIR\\libjpeg-turbo", 
+            "$env:BASE_DIR\\LibreSSL"
+          )
+          foreach ($dir in $depsDirs) {
+            if (Test-Path $dir) {
+              Write-Host "`n---- Scanning: $dir ----"
+              Get-ChildItem -Recurse $dir -Filter *.lib | ForEach-Object {
+                Write-Host "`n$file"
+                $file = $_.FullName
+                try {
+                  & dumpbin /directives $file | Select-String 'DEFAULTLIB'
+                } catch {
+                  Write-Host "  (failed dumpbin on $file)"
+                }
+              }
+            } else {
+              Write-Host "Dir not found: $dir"
+            }
+          }
+
       - name: Configure CMake (Release, no CEF, Windows x64)
         shell: bash
         run: |
@@ -341,6 +369,10 @@ jobs:
             -DCEF_SUPPORT="$CEF_SUPPORT" \
             -DBUGSPLAT_SUPPORT=OFF \
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
+          echo "-----------------------------"
+          echo "CMAKE_MSVC_RUNTIME_LIBRARY setting in cache:"
+          grep CMAKE_MSVC_RUNTIME_LIBRARY CMakeCache.txt || cat CMakeCache.txt
+          echo "-----------------------------"
 
       - name: Build gui_client (cmake --build)
         shell: bash
