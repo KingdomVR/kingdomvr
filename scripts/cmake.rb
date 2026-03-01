@@ -96,31 +96,11 @@ class CMakeBuild
 		end
 
 		if OS.windows?
-			# Allow overriding generator via environment (useful in CI).
-			if ENV['CMAKE_GENERATOR'] && ENV['CMAKE_GENERATOR'] != ''
-				gen = ENV['CMAKE_GENERATOR']
-				# If generator is a Visual Studio generator, still pass toolset
-				if gen.include?("Visual Studio")
-					win_args = " -G \"#{gen}\" -T \"#{getVSToolset()}\""
-				else
-					win_args = " -G \"#{gen}\""
-				end
-			else
-				win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
-			end
-
-			# Force MSVC runtime selection to MultiThreadedDLL for Windows builds to avoid mixing
-			# debug CRT libraries into Release artifacts. This is intentional; to override,
-			# explicitly modify this script.
-			runtime_arg = " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
-			# Force build type to Release by default (useful for single-config generators like Ninja).
-			# This is harmless for multi-config generators (Visual Studio) where the config
-			# is selected at build time, but helps ensure Release flags for single-config.
-			build_type_arg = " -DCMAKE_BUILD_TYPE=Release"
+			win_args = " -G \"#{getVSGenerator()}\" -T \"#{getVSToolset()}\""
 		end
 
 		Dir.chdir(@build_dir) do
-			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args} #{runtime_arg}#{build_type_arg} #{cmake_args}")
+			print_and_exec_command("cmake \"#{@source_dir}\" -DCMAKE_INSTALL_PREFIX:STRING=\"#{@install_dir}\"#{unix_args}#{osx_args}#{win_args} #{cmake_args}")
 		end
 	end
 	

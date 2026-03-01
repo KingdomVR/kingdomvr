@@ -59,93 +59,10 @@ jobs:
           repository: glaretechnologies/winter
           path: work/winter
 
-      - name: Patch cmake.rb to support Ninja generator via CMAKE_GENERATOR
+      - name: Prepare for Visual Studio/msbuild builds
         shell: pwsh
         run: |
-          $cmakeRb = "work/glare-core/scripts/cmake.rb"
-          Write-Host "Patching $cmakeRb..."
-          
-          $lines = Get-Content $cmakeRb
-          $newLines = @()
-          $i = 0
-          
-          while ($i -lt $lines.Count) {
-            $line = $lines[$i]
-            
-            # After line 51 (end of init method, after the check for @install_dir), add @using_ninja
-            if ($i -eq 51 -and $line -match '^\t\tend$') {
-              $newLines += $line
-              $newLines += ""
-              $newLines += "`t`t@using_ninja = false"
-              $i++
-              continue
-            }
-            
-            # Replace line 86 (win_args assignment) with conditional check
-            if ($line -match '^\t\t\twin_args = " -G') {
-              $newLines += "`t`t`t# Respect CMAKE_GENERATOR environment variable if set (e.g., for Ninja builds)"
-              $newLines += "`t`t`tif ENV['CMAKE_GENERATOR']"
-              $newLines += "`t`t`t`tputs `"#{@build_name} CMake configure: Using CMAKE_GENERATOR from environment: #{ENV['CMAKE_GENERATOR']}`""
-              $newLines += "`t`t`t`twin_args = ENV['CMAKE_GENERATOR'].include?(`"Visual Studio`") ? `" -T \`"#{getVSToolset()}\`"`" : `"`""
-              $newLines += "`t`t`t`t@using_ninja = (ENV['CMAKE_GENERATOR'] == 'Ninja')"
-              $newLines += "`t`t`telse"
-              $newLines += "`t`t`t`twin_args = `" -G \`"#{getVSGenerator()}\`" -T \`"#{getVSToolset()}\`"`""
-              $newLines += "`t`t`tend"
-              $i++
-              continue
-            }
-            
-            # Replace buildVisualStudio call with conditional
-            if ($line -match '^\t\t\tbuildVisualStudio\(targets, clean\)$') {
-              $newLines += "`t`t`t@using_ninja ? buildWithCMake(targets, clean) : buildVisualStudio(targets, clean)"
-              $i++
-              continue
-            }
-            
-            # Replace installVisualStudio call with conditional
-            if ($line -match '^\t\t\tinstallVisualStudio\(\)$') {
-              $newLines += "`t`t`t@using_ninja ? installWithCMake() : installVisualStudio()"
-              $i++
-              continue
-            }
-            
-            # Before buildMakefile method, add new methods
-            if ($line -match '^\tdef buildMakefile\(targets, clean\)$') {
-              $newLines += ""
-              $newLines += "`tdef buildWithCMake(targets, clean)"
-              $newLines += "`t`tconfig_name = getConfigName()"
-              $newLines += "`t`t"
-              $newLines += "`t`tif clean"
-              $newLines += "`t`t`tDir.chdir(@build_dir) do"
-              $newLines += "`t`t`t`texec_command(`"cmake --build . --target clean --config #{config_name}`")"
-              $newLines += "`t`t`tend"
-              $newLines += "`t`tend"
-              $newLines += "`t`t"
-              $newLines += "`t`tDir.chdir(@build_dir) do"
-              $newLines += "`t`t`ttarget_args = targets.map { |t| `"--target #{t}`" }.join(`" `")"
-              $newLines += "`t`t`texec_command(`"cmake --build . #{target_args} --config #{config_name} --parallel`")"
-              $newLines += "`t`tend"
-              $newLines += "`tend"
-              $newLines += ""
-              $newLines += "`tdef installWithCMake()"
-              $newLines += "`t`tDir.chdir(@build_dir) do"
-              $newLines += "`t`t`texec_command(`"cmake --build . --target install --config #{getConfigName()}`")"
-              $newLines += "`t`tend"
-              $newLines += "`tend"
-              $newLines += ""
-            }
-            
-            $newLines += $line
-            $i++
-          }
-          
-          $newLines | Set-Content $cmakeRb
-          Write-Host "✓ Patched cmake.rb successfully"
-
-      - name: Force MSVC runtime flag in work/glare-core/scripts/cmake.rb
-        shell: pwsh
-        run: |
-          & "$env:GITHUB_WORKSPACE/work/substrata/.github/scripts/ensure_cmake_runtime.ps1" "$env:GITHUB_WORKSPACE/work/glare-core/scripts/cmake.rb"
+          Write-Host "Using Visual Studio generator (msbuild) for Windows builds; no Ninja override."
 
 
       - name: Show runner + disk info (before)
@@ -270,8 +187,8 @@ jobs:
       - name: Install build prerequisites
         shell: pwsh
         run: |
-          # ninja is needed by some build scripts; jq is pre-installed on windows-2022 runners
-          choco install ninja -y --no-progress
+          # Ensure common tools are available; msbuild is provided by the VS images.
+          Write-Host "No Ninja install required; using Visual Studio/msbuild on windows-2022 runners."
 
       - name: Prepare directories
         shell: bash
@@ -286,12 +203,8 @@ jobs:
         run: |
           Write-Host "=== LIBRESSL/JPEG BUILD ==="
           
-          # Force CMake to use Ninja generator instead of MSBuild to avoid .NET Framework MSBuild issues
-          $env:CMAKE_GENERATOR = "Ninja"
-          
-          # Ensure cl.exe (MSVC compiler) is in PATH from previous msvc-dev-cmd setup
+          # Use the Visual Studio generator (msbuild) provided by the VS toolchain
           Write-Host "MSVC compiler: $(& where.exe cl.exe | Select-Object -First 1)"
-          Write-Host "Ninja: $(& where.exe ninja.exe | Select-Object -First 1)"
           
           $HeartbeatJob = Start-Job -ScriptBlock {
             while ($true) {
@@ -302,14 +215,14 @@ jobs:
           
           try {
             Write-Host ""
-            Write-Host "=== LIBRESSL BUILD (using Ninja) ==="
+            Write-Host "=== LIBRESSL BUILD ==="
             & ruby build_libressl.rb --config "$env:BUILD_CONFIG"
             if ($LASTEXITCODE -ne 0) { 
               Write-Error "LibreSSL FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE 
             }
             
             Write-Host ""
-            Write-Host "=== JPEG BUILD (using Ninja) ==="
+            Write-Host "=== JPEG BUILD ==="
             & ruby build_jpegturbo.rb --config "$env:BUILD_CONFIG"
             if ($LASTEXITCODE -ne 0) {
               Write-Error "JPEG FAILED (exit: $LASTEXITCODE)"; exit $LASTEXITCODE
@@ -324,64 +237,20 @@ jobs:
             Remove-Job $HeartbeatJob -ErrorAction SilentlyContinue
           }
 
-      - name: Patch work/glare-core/scripts/build_llvm.rb to force runtime and echo cmake configure
-        shell: pwsh
-        run: |
-          $file = "$env:GITHUB_WORKSPACE/work/glare-core/scripts/build_llvm.rb"
-          Write-Host "Patching $file for CI diagnostics and forcing CMAKE_MSVC_RUNTIME_LIBRARY..."
-          if (!(Test-Path $file)) { Write-Host "File not found: $file"; exit 0 }
-          $txt = Get-Content $file -Raw
-
-          $search = 'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)'
-          if ($txt -match [regex]::Escape($search)) {
-            $lines = @(
-              'puts "=== CI: cmake configure for LLVM ==="',
-              'puts "build_dir: #{build_dir}"',
-              'puts "cmake_args (before forcing runtime): #{cmake_args}"',
-              'unless cmake_args.include?("CMAKE_MSVC_RUNTIME_LIBRARY")',
-              '  cmake_args += " -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"',
-              '  puts "CI: Appended CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL to cmake_args"',
-              'end',
-              'puts "cmake_args (after forcing runtime): #{cmake_args}"',
-              'cmake_build.configure(configuration, vs_version, cmake_args, allow_reconfig, OS.arm64?)',
-              'cache = File.join(build_dir, "CMakeCache.txt")',
-              'if File.exist?(cache)',
-              '  puts "---- CMakeCache.txt: CMAKE_MSVC_RUNTIME_LIBRARY entry ----"',
-              '  File.foreach(cache) { |l| puts l if l.include?("CMAKE_MSVC_RUNTIME_LIBRARY") }',
-              '  puts "---- Last 200 lines of CMakeCache.txt ----"',
-              '  puts File.read(cache).split("\\n").last(200).join("\\n")',
-              'else',
-              '  puts "CMakeCache.txt not found at #{cache}"',
-              'end'
-            )
-            $insert = $lines -join "`n"
-            $txt = $txt -replace [regex]::Escape($search), $insert
-            Set-Content -Path $file -Value $txt
-            Write-Host "Patched $file"
-          } else {
-            Write-Host "Pattern not found in $file; skipping patch"
-          }
-      - name: Build LLVM (Release only, with log + observable progress)
+      - name: Build LLVM (Release only, using Visual Studio / msbuild)
         working-directory: work/glare-core/scripts
         shell: pwsh
         run: |
-          Write-Host "=== LLVM BUILD ==="
-          
-          # Force CMake to use Ninja generator
-          $env:CMAKE_GENERATOR = "Ninja"
-          
-          Write-Host "Using Ninja generator to avoid MSBuild issues"
+          Write-Host "=== LLVM BUILD (msbuild) ==="
           Write-Host "MSVC compiler: $(& where.exe cl.exe | Select-Object -First 1)"
-          Write-Host "Ninja: $(& where.exe ninja.exe | Select-Object -First 1)"
-          
+
           $LogDir = "${{ github.workspace }}/logs"
           New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
           $LLVMLog = "$LogDir/llvm_build.log"
 
-          Write-Host ""
-          Write-Host "Starting LLVM build with Ninja..." 
+          Write-Host "Starting LLVM build (msbuild via Visual Studio generator)..." 
           & ruby build_llvm.rb --config "$env:BUILD_CONFIG" 2>&1 | Tee-Object -FilePath $LLVMLog
-          
+
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {
             Write-Host ""
@@ -390,7 +259,7 @@ jobs:
             Get-Content $LLVMLog -ErrorAction SilentlyContinue | Select-Object -Last 150
             exit $exitCode
           }
-          
+
           Write-Host ""
           Write-Host "✓ LLVM build succeeded"
 
