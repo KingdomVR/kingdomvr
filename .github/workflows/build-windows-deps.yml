@@ -65,6 +65,17 @@ jobs:
           Write-Host "Using Visual Studio generator (msbuild) for Windows builds; no Ninja override."
 
 
+      - name: Set up MSVC developer environment (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install CMake 3.29.6 (pin version)
+        shell: pwsh
+        run: |
+          choco install cmake --version=3.29.6 -y --no-progress
+          cmake --version
+
       - name: Show runner + disk info (before)
         shell: bash
         run: |
@@ -72,11 +83,6 @@ jobs:
           ruby --version || true
           python --version || true
           df -h || true
-
-      - name: Set up MSVC developer environment (x64)
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: amd64
 
       - name: Setup MSBuild for Visual Studio 2022
         uses: microsoft/setup-msbuild@v2

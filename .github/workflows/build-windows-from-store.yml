@@ -52,6 +52,17 @@ jobs:
             exit 1
           fi
 
+      - name: Set up MSVC developer environment (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install CMake 3.29.6 (pin version)
+        shell: pwsh
+        run: |
+          choco install cmake --version=3.29.6 -y --no-progress
+          cmake --version
+
       - name: Show runner + disk info (before)
         shell: bash
         run: |
@@ -59,11 +70,6 @@ jobs:
           ruby --version || true
           python --version || true
           df -h || true
-
-      - name: Set up MSVC developer environment (x64)
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: amd64
 
       - name: Download deps archive from store repository
         id: download_asset
