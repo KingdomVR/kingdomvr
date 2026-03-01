@@ -153,7 +153,7 @@ jobs:
           $lines = @(
             '# Allow overriding generator via environment (useful in CI).',
             "if ENV['CMAKE_GENERATOR'] && ENV['CMAKE_GENERATOR'] != ''",
-            '  gen = ENV[\'CMAKE_GENERATOR\']',
+            "  gen = ENV['CMAKE_GENERATOR']",
             '  # If generator is a Visual Studio generator, still pass toolset',
             '  if gen.include?("Visual Studio")',
             '    win_args = " -G \\\"#{gen}\\\" -T \\\"#{getVSToolset()}\\\""',
