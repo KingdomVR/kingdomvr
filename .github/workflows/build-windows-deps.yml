@@ -257,9 +257,22 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "MSBuildExtensionsPath=$msBuildExt"
           $env:MSBuildExtensionsPath = $msBuildExt
 
-          # Locate Microsoft.Cpp.Default.props under the VS MSBuild tree and set VCTargetsPath accordingly
-          Write-Host "Searching for Microsoft.Cpp.Default.props under: $(Join-Path $vsPath 'MSBuild\Microsoft\VC')"
-          $propsFile = Get-ChildItem -Path (Join-Path $vsPath 'MSBuild\Microsoft\VC') -Recurse -Filter Microsoft.Cpp.Default.props -ErrorAction SilentlyContinue | Select-Object -First 1
+          # Locate Microsoft.Cpp.Default.props under the VS MSBuild tree and set VCTargetsPath accordingly.
+          # Prefer the VS2022 (v170) toolset folder so PlatformToolset=v143 can be found.
+          $vcRoot = Join-Path $vsPath 'MSBuild\Microsoft\VC'
+          Write-Host "Searching for Microsoft.Cpp.Default.props under: $vcRoot"
+
+          $allProps = Get-ChildItem -Path $vcRoot -Recurse -Filter Microsoft.Cpp.Default.props -ErrorAction SilentlyContinue
+
+          # Prefer v170 paths (VS2022) if present, otherwise fall back to highest version.
+          $propsFile = $null
+          if ($allProps) {
+            $propsFile = $allProps | Where-Object { $_.FullName -match 'v170' } | Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $propsFile) {
+              $propsFile = $allProps | Sort-Object FullName -Descending | Select-Object -First 1
+            }
+          }
+
           if ($propsFile) {
             $vcTargetsPath = Split-Path $propsFile.FullName -Parent
             Write-Host "Found props at: $($propsFile.FullName)"
