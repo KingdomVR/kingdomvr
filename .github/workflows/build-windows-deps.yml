@@ -385,7 +385,7 @@ jobs:
 
           # Create a small shim .bat that forwards to PowerShell wrapper (so other tools calling cmake.exe find a .exe/.bat)
           $wrapperBat = Join-Path $wrapperDir 'cmake.bat'
-          $batContent = "@echo off`nrem Forward to PowerShell wrapper`n%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$ps1\" -- %*"
+          $batContent = "@echo off`nrem Forward to PowerShell wrapper`n%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ps1`" -- %*"
           Set-Content -Path $wrapperBat -Value $batContent -Encoding ASCII
 
           Write-Host "Created cmake wrapper at: $wrapperBat (PowerShell-backed)"
