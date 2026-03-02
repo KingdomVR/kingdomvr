@@ -61,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           $targetVersion = '3.29.6'
-          choco install cmake --version=$targetVersion -y --no-progress
+          choco install cmake --version=$targetVersion -y --no-progress --allow-downgrade --force
 
           # Find the installed CMake matching the target version
           $candidates = @()
