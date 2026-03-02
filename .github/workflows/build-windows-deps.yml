@@ -313,6 +313,28 @@ jobs:
           $env:PATH = "$wrapperDir;" + $env:PATH
           Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
 
+      - name: Workaround MSBuild VCTargetsPath OutputPath issue (Directory.Build.props)
+        shell: pwsh
+        run: |
+          # Create a Directory.Build.props under GLARE_CORE_LIBS/LibreSSL so that
+          # the synthetic VCTargetsPath.vcxproj CMake uses can get a valid OutputPath/BaseOutputPath.
+          $libresslRoot = Join-Path $env:GLARE_CORE_LIBS 'LibreSSL'
+          New-Item -ItemType Directory -Path $libresslRoot -Force | Out-Null
+
+          $propsPath = Join-Path $libresslRoot 'Directory.Build.props'
+          Write-Host "Writing MSBuild props workaround to: $propsPath"
+
+          $propsContent = @'
+          <Project>
+            <PropertyGroup>
+              <BaseOutputPath>$(MSBuildThisFileDirectory)</BaseOutputPath>
+              <OutputPath>$(MSBuildThisFileDirectory)</OutputPath>
+            </PropertyGroup>
+          </Project>
+          '@
+
+          Set-Content -Path $propsPath -Value $propsContent -Encoding UTF8
+
       - name: Build LibreSSL + libjpeg-turbo (Release only)
         working-directory: work/glare-core/scripts
         shell: pwsh
