@@ -294,6 +294,32 @@ jobs:
             }
           }
 
+      - name: Ensure MSBuild v170Platforms maps to MSVC VCTargets Platforms
+        shell: pwsh
+        run: |
+          # Some MSBuild targets import v170Platforms\x64\Platform.props which may not exist
+          # in the MSBuild tree on the runner. If that's the case, copy the Platforms from
+          # the MSVC VCTargets directory so imports succeed.
+          $vsPath = & 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe' -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $msvcTools = Get-ChildItem (Join-Path $vsPath 'VC\Tools\MSVC') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $msvcTools) { Write-Host "No MSVC Tools folder found to copy Platforms from."; exit 0 }
+
+          $sourcePlatforms = Join-Path $msvcTools.FullName 'VCTargets\Platforms'
+          $destPlatforms = Join-Path $vsPath 'MSBuild\Microsoft\VC\v170Platforms'
+
+          if (-not (Test-Path $destPlatforms)) {
+            Write-Host "v170Platforms not found under MSBuild. Creating and copying from: $sourcePlatforms"
+            New-Item -ItemType Directory -Path $destPlatforms -Force | Out-Null
+            if (Test-Path $sourcePlatforms) {
+              Copy-Item -Path (Join-Path $sourcePlatforms '*') -Destination $destPlatforms -Recurse -Force
+              Write-Host "Copied Platforms files to: $destPlatforms"
+            } else {
+              Write-Host "Source Platforms folder not found at: $sourcePlatforms"
+            }
+          } else {
+            Write-Host "v170Platforms already present at: $destPlatforms"
+          }
+
       - name: Create cmake wrapper to force x64 when Visual Studio generator used
         shell: pwsh
         run: |
