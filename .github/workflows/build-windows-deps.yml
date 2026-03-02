@@ -257,39 +257,41 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "MSBuildExtensionsPath=$msBuildExt"
           $env:MSBuildExtensionsPath = $msBuildExt
 
-          # Locate Microsoft.Cpp.Default.props under the VS MSBuild tree and set VCTargetsPath accordingly.
-          # Prefer the VS2022 (v170) toolset folder so PlatformToolset=v143 can be found.
-          $vcRoot = Join-Path $vsPath 'MSBuild\Microsoft\VC'
-          Write-Host "Searching for Microsoft.Cpp.Default.props under: $vcRoot"
-
-          $allProps = Get-ChildItem -Path $vcRoot -Recurse -Filter Microsoft.Cpp.Default.props -ErrorAction SilentlyContinue
-
-          # Prefer v170 paths (VS2022) if present, otherwise fall back to highest version.
-          $propsFile = $null
-          if ($allProps) {
-            $propsFile = $allProps | Where-Object { $_.FullName -match 'v170' } | Sort-Object FullName -Descending | Select-Object -First 1
-            if (-not $propsFile) {
-              $propsFile = $allProps | Sort-Object FullName -Descending | Select-Object -First 1
+          # Prefer MSVC Tools 'VCTargets' folder (VC\Tools\MSVC\<ver>\VCTargets)
+          # This folder contains Platforms\x64\Platform.props required by v143/v170 toolset.
+          Write-Host "Looking for MSVC Tools VCTargets under: $vsPath\\VC\\Tools\\MSVC"
+          $msvcTools = Get-ChildItem (Join-Path $vsPath 'VC\Tools\MSVC') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if ($msvcTools) {
+            $vcTargets = Join-Path $msvcTools.FullName 'VCTargets'
+            if (Test-Path $vcTargets) {
+              Write-Host "Found MSVC VCTargets at: $vcTargets"
+              Add-Content -Path $env:GITHUB_ENV -Value "VCTargetsPath=$vcTargets"
+              $env:VCTargetsPath = $vcTargets
+            } else {
+              Write-Host "MSVC VCTargets folder not found at: $vcTargets"
             }
+          } else {
+            Write-Host "No MSVC Tools folder found under VC\\Tools\\MSVC"
           }
 
-          if ($propsFile) {
-            $vcTargetsPath = Split-Path $propsFile.FullName -Parent
-            Write-Host "Found props at: $($propsFile.FullName)"
-            Write-Host "Setting VCTargetsPath = $vcTargetsPath"
-            Add-Content -Path $env:GITHUB_ENV -Value "VCTargetsPath=$vcTargetsPath"
-            $env:VCTargetsPath = $vcTargetsPath
-          } else {
-            Write-Host "Microsoft.Cpp.Default.props not found under MSBuild VC tree; falling back to MSVC VCTargets location"
-            $msvcTools = Get-ChildItem (Join-Path $vsPath 'VC\Tools\MSVC') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
-            if (-not $msvcTools) {
-              Write-Error "MSVC Tools folder not found under $vsPath\\VC\\Tools\\MSVC"
+          if (-not $env:VCTargetsPath) {
+            # Fallback: search MSBuild\Microsoft\VC for Microsoft.Cpp.Default.props but avoid using v170 MSBuild tree
+            $vcRoot = Join-Path $vsPath 'MSBuild\Microsoft\VC'
+            Write-Host "Fallback: searching for Microsoft.Cpp.Default.props under: $vcRoot"
+            $allProps = Get-ChildItem -Path $vcRoot -Recurse -Filter Microsoft.Cpp.Default.props -ErrorAction SilentlyContinue
+            if ($allProps) {
+              # prefer non-v170 MSBuild props if they exist; otherwise pick highest available
+              $propsFile = $allProps | Where-Object { $_.FullName -notmatch 'v170' } | Sort-Object FullName -Descending | Select-Object -First 1
+              if (-not $propsFile) { $propsFile = $allProps | Sort-Object FullName -Descending | Select-Object -First 1 }
+              $vcTargetsPath = Split-Path $propsFile.FullName -Parent
+              Write-Host "Found props at: $($propsFile.FullName)"
+              Write-Host "Setting VCTargetsPath = $vcTargetsPath"
+              Add-Content -Path $env:GITHUB_ENV -Value "VCTargetsPath=$vcTargetsPath"
+              $env:VCTargetsPath = $vcTargetsPath
+            } else {
+              Write-Error "Could not determine a suitable VCTargetsPath from VS installation"
               exit 1
             }
-            $vcTargets = Join-Path $msvcTools.FullName 'VCTargets'
-            Write-Host "Setting VCTargetsPath = $vcTargets"
-            Add-Content -Path $env:GITHUB_ENV -Value "VCTargetsPath=$vcTargets"
-            $env:VCTargetsPath = $vcTargets
           }
 
       - name: Create cmake wrapper to force x64 when Visual Studio generator used
