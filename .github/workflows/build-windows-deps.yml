@@ -329,28 +329,66 @@ jobs:
             $real = (& where.exe cmake.exe) | Select-Object -First 1
           }
           if (-not $real) { Write-Error "cmake not found in PATH"; exit 1 }
+
           $wrapperDir = "${{ github.workspace }}\cmake-wrapper"
           New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
-          $wrapperBat = Join-Path $wrapperDir "cmake.bat"
-          $content = @'
-          @echo off
-          set REAL_CMAKE=__REAL_CMAKE__
-          set ALLARGS=%*
-          rem If generator mentions Visual Studio 17 and no -A present, append -A x64
-          echo %ALLARGS% | findstr /i /c:"Visual Studio 17" >nul
-          if %errorlevel%==0 (
-            echo %ALLARGS% | findstr /i /c:" -A " >nul
-            if %errorlevel%==1 (
-              "%REAL_CMAKE%" %ALLARGS% -A x64
-              exit /b %ERRORLEVEL%
-            )
-          )
-          "%REAL_CMAKE%" %ALLARGS%
-          exit /b %ERRORLEVEL%
-          '@
-          $content = $content -replace '__REAL_CMAKE__', $real
-          Set-Content -Path $wrapperBat -Value $content -Encoding ASCII
-          Write-Host "Created cmake wrapper at: $wrapperBat"
+
+          # Create PowerShell wrapper script that can rewrite generator args when FORCE_NMAKE is set
+          $ps1 = Join-Path $wrapperDir 'cmake-wrapper.ps1'
+          $ps1Content = @'
+param([String[]]$Args)
+
+$real = "__REAL_CMAKE__"
+
+# Reconstruct argument string
+$argList = $Args
+
+# If FORCE_NMAKE env var set, remove any existing -G / generator tokens and -T toolset tokens,
+# then append -G "NMake Makefiles" so the last -G wins.
+if ($env:FORCE_NMAKE) {
+  $newArgs = @()
+  for ($i = 0; $i -lt $argList.Count; $i++) {
+    $a = $argList[$i]
+    if ($a -ieq '-G') {
+      # skip this and next token
+      $i++
+      continue
+    }
+    if ($a -ieq '-T') {
+      # skip toolset token
+      $i++
+      continue
+    }
+    $newArgs += $a
+  }
+  $newArgs += '-G'
+  $newArgs += 'NMake Makefiles'
+  $argList = $newArgs
+}
+
+# If generator mentions Visual Studio 17 and no -A present, append -A x64
+$hasVS = $false
+$hasA = $false
+for ($i = 0; $i -lt $argList.Count; $i++) {
+  if ($argList[$i] -match 'Visual Studio 17') { $hasVS = $true }
+  if ($argList[$i] -ieq '-A') { $hasA = $true }
+}
+if ($hasVS -and -not $hasA) {
+  $argList += '-A'; $argList += 'x64'
+}
+
+& $real @argList
+exit $LASTEXITCODE
+'@
+          $ps1Content = $ps1Content -replace '__REAL_CMAKE__', $real
+          Set-Content -Path $ps1 -Value $ps1Content -Encoding UTF8
+
+          # Create a small shim .bat that forwards to PowerShell wrapper (so other tools calling cmake.exe find a .exe/.bat)
+          $wrapperBat = Join-Path $wrapperDir 'cmake.bat'
+          $batContent = "@echo off`nrem Forward to PowerShell wrapper`n%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$ps1\" -- %*"
+          Set-Content -Path $wrapperBat -Value $batContent -Encoding ASCII
+
+          Write-Host "Created cmake wrapper at: $wrapperBat (PowerShell-backed)"
           $env:PATH = "$wrapperDir;" + $env:PATH
           Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
 
