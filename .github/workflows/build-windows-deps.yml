@@ -376,6 +376,25 @@ jobs:
 
           Set-Content -Path $propsPath -Value $propsContent -Encoding UTF8
 
+      - name: Force `VCTargetsPath` to MSVC VCTargets directory
+        shell: pwsh
+        run: |
+          # Find the MSVC VCTargets directory and force it into VCTargetsPath so MSBuild imports Platform.props from there.
+          $vsPath = & 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe' -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $msvcTools = Get-ChildItem (Join-Path $vsPath 'VC\Tools\MSVC') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if ($msvcTools) {
+            $vcTargets = Join-Path $msvcTools.FullName 'VCTargets'
+            if (Test-Path $vcTargets) {
+              Write-Host "Forcing VCTargetsPath to: $vcTargets"
+              Add-Content -Path $env:GITHUB_ENV -Value "VCTargetsPath=$vcTargets"
+              $env:VCTargetsPath = $vcTargets
+            } else {
+              Write-Host "MSVC VCTargets not found at: $vcTargets"
+            }
+          } else {
+            Write-Host "MSVC Tools folder not found; cannot force VCTargetsPath"
+          }
+
       - name: Build LibreSSL + libjpeg-turbo (Release only)
         working-directory: work/glare-core/scripts
         shell: pwsh
