@@ -383,14 +383,16 @@ jobs:
           $ps1Content = $ps1Content -replace '__REAL_CMAKE__', $real
           Set-Content -Path $ps1 -Value $ps1Content -Encoding UTF8
 
-          # Create a small shim .bat that forwards to PowerShell wrapper (so other tools calling cmake.exe find a .exe/.bat)
+          # Create a simple batch shim that directly calls the pinned cmake executable
           $wrapperBat = Join-Path $wrapperDir 'cmake.bat'
-          $batContent = "@echo off`nrem Forward to PowerShell wrapper`n%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ps1`" -- %*"
+          $batContent = "@echo off`nrem Directly invoke pinned cmake`n`"$real`" %*"
           Set-Content -Path $wrapperBat -Value $batContent -Encoding ASCII
 
           Write-Host "Created cmake wrapper at: $wrapperBat (PowerShell-backed)"
           $env:PATH = "$wrapperDir;" + $env:PATH
           Add-Content -Path $env:GITHUB_ENV -Value "PATH=$($env:PATH)"
+          # Export CMAKE env var so Ruby build scripts pick the pinned cmake executable
+          Add-Content -Path $env:GITHUB_ENV -Value "CMAKE=$real"
 
       - name: Workaround MSBuild VCTargetsPath OutputPath issue (Directory.Build.props)
         shell: pwsh
@@ -443,7 +445,23 @@ jobs:
           $out = @()
           $inserted = $false
           foreach ($line in $lines) {
+            # If we find the CMake version detection line, replace it with a safe implementation
+            if ($line -match '@cmake_version\s*=\s*Gem::Version.new\(`cmake --version`') {
+              $out += ''
+              $out += 'cmake_cmd = ENV["CMAKE"] && ENV["CMAKE"].length > 0 ? ENV["CMAKE"] : "cmake"'
+              $out += 'ver_out = ""'
+              $out += 'begin'
+              $out += '  ver_out = `"#{cmake_cmd}" --version 2>&1`'
+              $out += 'rescue'
+              $out += '  ver_out = ""'
+              $out += 'end'
+              $out += 'ver = ver_out[/\d+\.\d+\.\d+/] || "0.0.0"'
+              $out += '@cmake_version = Gem::Version.new(ver)'
+              continue
+            }
+
             $out += $line
+
             if (-not $inserted -and $line -match '^class CMakeBuild') {
               $out += ''
               $out += 'if ENV["FORCE_NMAKE"]'
@@ -454,11 +472,24 @@ jobs:
               $out += '    return ""'
               $out += '  end'
               $out += 'end'
+              $out += ''
+              $out += '# CI patch: prefer pinned CMake if provided via ENV["CMAKE"]'
+              $out += 'def self.__cmake_version_safe()'
+              $out += '  cm = ENV["CMAKE"] && ENV["CMAKE"].length > 0 ? ENV["CMAKE"] : "cmake"'
+              $out += '  ver_out = ""'
+              $out += '  begin'
+              $out += '    ver_out = `"#{cm}" --version 2>&1`'
+              $out += '  rescue'
+              $out += '    ver_out = ""'
+              $out += '  end'
+              $out += '  m = ver_out[/\d+\.\d+\.\d+/]'
+              $out += '  return Gem::Version.new(m || "0.0.0")'
+              $out += 'end'
               $inserted = $true
             }
           }
           $out | Set-Content $file -Encoding UTF8
-          Write-Host "Patched $file to respect FORCE_NMAKE"
+          Write-Host "Patched $file to respect FORCE_NMAKE and prefer ENV['CMAKE'] for version detection"
 
       - name: Build LibreSSL + libjpeg-turbo (Release only)
         working-directory: work/glare-core/scripts
