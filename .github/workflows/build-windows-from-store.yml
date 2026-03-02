@@ -60,8 +60,41 @@ jobs:
       - name: Install CMake 3.29.6 (pin version)
         shell: pwsh
         run: |
-          choco install cmake --version=3.29.6 -y --no-progress
-          cmake --version
+          $targetVersion = '3.29.6'
+          choco install cmake --version=$targetVersion -y --no-progress
+
+          # Find the installed CMake matching the target version
+          $candidates = @()
+          try {
+            $candidates = Get-Command cmake.exe -All | Select-Object -ExpandProperty Source
+          } catch {
+            Write-Error "cmake.exe not found after installation."
+            exit 1
+          }
+
+          $selected = $null
+          foreach ($path in $candidates) {
+            try {
+              $out = & $path --version 2>$null
+              if ($out -match "cmake version $targetVersion") {
+                $selected = $path
+                break
+              }
+            } catch {
+              # ignore candidate errors
+            }
+          }
+
+          if (-not $selected) {
+            Write-Host "Available cmake.exe candidates after install:"
+            $candidates | ForEach-Object { Write-Host " - $_" }
+            Write-Error "Failed to find CMake $targetVersion in PATH after installation."
+            exit 1
+          }
+
+          Write-Host "Using pinned CMake $targetVersion at: $selected"
+          Add-Content -Path $env:GITHUB_ENV -Value "PINNED_CMAKE=$selected"
+          & $selected --version
 
       - name: Show runner + disk info (before)
         shell: bash
@@ -372,7 +405,11 @@ jobs:
       - name: Create cmake wrapper to force x64 when Visual Studio generator used
         shell: pwsh
         run: |
-          $real = (& where.exe cmake.exe) | Select-Object -First 1
+          $real = $env:PINNED_CMAKE
+          if (-not $real -or -not (Test-Path $real)) {
+            Write-Host "PINNED_CMAKE not set or invalid; falling back to first cmake.exe in PATH"
+            $real = (& where.exe cmake.exe) | Select-Object -First 1
+          }
           if (-not $real) { Write-Error "cmake not found in PATH"; exit 1 }
           $wrapperDir = "${{ github.workspace }}\cmake-wrapper"
           New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
