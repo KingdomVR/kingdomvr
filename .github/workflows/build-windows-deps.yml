@@ -336,50 +336,50 @@ jobs:
           # Create PowerShell wrapper script that can rewrite generator args when FORCE_NMAKE is set
           $ps1 = Join-Path $wrapperDir 'cmake-wrapper.ps1'
           $ps1Content = @'
-param([String[]]$Args)
+          param([String[]]$Args)
 
-$real = "__REAL_CMAKE__"
+          $real = "__REAL_CMAKE__"
 
-# Reconstruct argument string
-$argList = $Args
+          # Reconstruct argument string
+          $argList = $Args
 
-# If FORCE_NMAKE env var set, remove any existing -G / generator tokens and -T toolset tokens,
-# then append -G "NMake Makefiles" so the last -G wins.
-if ($env:FORCE_NMAKE) {
-  $newArgs = @()
-  for ($i = 0; $i -lt $argList.Count; $i++) {
-    $a = $argList[$i]
-    if ($a -ieq '-G') {
-      # skip this and next token
-      $i++
-      continue
-    }
-    if ($a -ieq '-T') {
-      # skip toolset token
-      $i++
-      continue
-    }
-    $newArgs += $a
-  }
-  $newArgs += '-G'
-  $newArgs += 'NMake Makefiles'
-  $argList = $newArgs
-}
+          # If FORCE_NMAKE env var set, remove any existing -G / generator tokens and -T toolset tokens,
+          # then append -G "NMake Makefiles" so the last -G wins.
+          if ($env:FORCE_NMAKE) {
+            $newArgs = @()
+            for ($i = 0; $i -lt $argList.Count; $i++) {
+              $a = $argList[$i]
+              if ($a -ieq '-G') {
+                # skip this and next token
+                $i++
+                continue
+              }
+              if ($a -ieq '-T') {
+                # skip toolset token
+                $i++
+                continue
+              }
+              $newArgs += $a
+            }
+            $newArgs += '-G'
+            $newArgs += 'NMake Makefiles'
+            $argList = $newArgs
+          }
 
-# If generator mentions Visual Studio 17 and no -A present, append -A x64
-$hasVS = $false
-$hasA = $false
-for ($i = 0; $i -lt $argList.Count; $i++) {
-  if ($argList[$i] -match 'Visual Studio 17') { $hasVS = $true }
-  if ($argList[$i] -ieq '-A') { $hasA = $true }
-}
-if ($hasVS -and -not $hasA) {
-  $argList += '-A'; $argList += 'x64'
-}
+          # If generator mentions Visual Studio 17 and no -A present, append -A x64
+          $hasVS = $false
+          $hasA = $false
+          for ($i = 0; $i -lt $argList.Count; $i++) {
+            if ($argList[$i] -match 'Visual Studio 17') { $hasVS = $true }
+            if ($argList[$i] -ieq '-A') { $hasA = $true }
+          }
+          if ($hasVS -and -not $hasA) {
+            $argList += '-A'; $argList += 'x64'
+          }
 
-& $real @argList
-exit $LASTEXITCODE
-'@
+          & $real @argList
+          exit $LASTEXITCODE
+          '@
           $ps1Content = $ps1Content -replace '__REAL_CMAKE__', $real
           Set-Content -Path $ps1 -Value $ps1Content -Encoding UTF8
 
