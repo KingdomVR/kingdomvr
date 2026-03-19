@@ -1320,7 +1320,12 @@ elseif(WIN32)
 		)
 	endif()
 	
-	# target_link_options(${CURRENT_TARGET} PRIVATE "/SUBSYSTEM:CONSOLE")
+	# Force GUI subsystem for the main Windows client so no console window is created.
+	if(MSVC)
+		target_link_options(${CURRENT_TARGET} PRIVATE "/SUBSYSTEM:WINDOWS")
+	elseif(MINGW)
+		target_link_options(${CURRENT_TARGET} PRIVATE "-mwindows")
+	endif()
 
 	# Disable ASLR (/DYNAMICBASE)
 	#get_target_property(OLD_TARGET_PROPERTIES ${CURRENT_TARGET} LINK_FLAGS)
