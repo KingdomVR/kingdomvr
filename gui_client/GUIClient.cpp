@@ -43,6 +43,7 @@ Copyright Glare Technologies Limited 2024 -
 #include "BoatPhysics.h"
 #include "JoltUtils.h"
 #include "MiniMap.h"
+#include "PhotoModeUI.h"
 #include "CEF.h"
 #include <limits>
 #if !defined(EMSCRIPTEN)
@@ -146,6 +147,7 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	parsed_args(args),
 	connection_state(ServerConnectionState_NotConnected),
 	received_world_settings_since_connect_or_world_change(false),
+	world_settings_locally_dirty(false),
 	logged_in_user_id(UserID::invalidUserID()),
 	logged_in_user_flags(0),
 	shown_object_modification_error_msg(false),
@@ -488,22 +490,19 @@ void GUIClient::afterGLInitInitialise(double device_pixel_ratio, Reference<OpenG
 	gl_ui = new GLUI();
 	gl_ui->create(opengl_engine, (float)device_pixel_ratio, fonts, emoji_fonts, &this->stack_allocator);
 
-	gesture_ui.create(opengl_engine, /*gui_client_=*/this, gl_ui);
+	gesture_ui.create(/*gui_client_=*/this, gl_ui);
 
-	ob_info_ui.create(opengl_engine, /*gui_client_=*/this, gl_ui);
+	ob_info_ui.create(/*gui_client_=*/this, gl_ui);
 
-	misc_info_ui.create(opengl_engine, /*gui_client_=*/this, gl_ui);
+	misc_info_ui.create(/*gui_client_=*/this, gl_ui);
 	
-	hud_ui.create(opengl_engine, /*gui_client_=*/this, gl_ui);
+	hud_ui.create(/*gui_client_=*/this, gl_ui);
 
-	chat_ui.create(opengl_engine, /*gui_client_=*/this, gl_ui);
+	chat_ui.create(/*gui_client_=*/this, gl_ui);
 
 	// Chat UI should be drawn above the movement button if present.
 	const float bottom_left_y = misc_info_ui.movement_button ? misc_info_ui.movement_button->getRect().getMax().y : -gl_ui->getViewportMinMaxY();
 	chat_ui.setDrawAreaBottomLeftY(bottom_left_y);
-
-	photo_mode_ui.create(opengl_engine, /*gui_client_=*/this, gl_ui, this->settings);
-	photo_mode_ui.setVisible(false);
 
 
 	// For non-Emscripten, init this stuff now.  For Emscripten, since this data is loaded from the webserver, wait until we are connecting and hence know the server hostname.
@@ -1039,7 +1038,7 @@ void GUIClient::shutdown()
 
 	chat_ui.destroy();
 
-	photo_mode_ui.destroy();
+	photo_mode_ui = nullptr;
 
 	minimap = nullptr;
 
@@ -1670,6 +1669,12 @@ bool GUIClient::isDownloadingResourceCurrentlyNeeded(const URLString& URL) const
 }
 
 
+void GUIClient::handleAnimationFilePickedFromEmscripten(const std::string& local_anim_path)
+{
+	gesture_ui.handleAnimationFilePickedFromEmscripten(local_anim_path);
+}
+
+
 // Handle finished downloading a ".subanim" file.
 // For emscripten, load from 'loaded_buffer' memory buffer instead of from resource on disk.
 void GUIClient::handleDownloadedAnimationResource(const std::string& local_path, const ResourceRef& resource, Reference<LoadedBuffer> loaded_buffer) 
@@ -2063,7 +2068,7 @@ void GUIClient::createGLAndPhysicsObsForText(const Matrix4f& ob_to_world_matrix,
 	const int font_size_px = 42;
 
 	std::vector<GLUIText::CharPositionInfo> char_positions_font_coords;
-	Reference<OpenGLMeshRenderData> meshdata = GLUIText::makeMeshDataForText(opengl_engine, gl_ui->font_char_text_cache.ptr(), gl_ui->getFonts(), gl_ui->getEmojiFonts(), use_text, 
+	Reference<OpenGLMeshRenderData> meshdata = GLUIText::makeMeshDataForText(opengl_engine.ptr(), gl_ui->font_char_text_cache.ptr(), gl_ui->getFonts(), gl_ui->getEmojiFonts(), use_text, 
 		/*font size px=*/font_size_px, /*vert_pos_scale=*/(1.f / font_size_px), /*render SDF=*/true, this->stack_allocator, rect_os, atlas_texture, char_positions_font_coords);
 
 	// We will make a physics object that has the same dimensions in object space as the text mesh vertices.  This means we can use the same pos, rot and scale
@@ -5262,7 +5267,7 @@ void GUIClient::updateDiagnosticAABBForObject(WorldObject* ob)
 			if(ob->diagnostic_text_view.isNull())
 			{
 				GLUITextView::CreateArgs create_args;
-				ob->diagnostic_text_view = new GLUITextView(*this->gl_ui, this->opengl_engine, diag_text, Vec2f(0.f, 0.f), create_args);
+				ob->diagnostic_text_view = new GLUITextView(*this->gl_ui, diag_text, Vec2f(0.f, 0.f), create_args);
 			}
 			else
 			{
@@ -5511,6 +5516,9 @@ void GUIClient::timerEvent(const MouseCursorState& mouse_cursor_state)
 {
 	ZoneScoped; // Tracy profiler
 	Timer timer_event_timer;
+
+	if(opengl_engine.isNull())
+		return;
 
 	if((connection_state == ServerConnectionState_NotConnected) && (retry_connection_timer.elapsed() > 10.0))
 	{
@@ -6307,9 +6315,10 @@ void GUIClient::timerEvent(const MouseCursorState& mouse_cursor_state)
 		this->cam_controller.setFirstPersonPosition(toVec3d(campos));
 
 		// Show vehicle speed on UI
-		if(vehicle_controller_inside) // If we are inside a vehicle:
+		if(vehicle_controller_inside ) // || (player_physics.getLinearVel().length() > 50.f)) // If we are inside a vehicle:
 		{
-			const float speed_km_h = vehicle_controller_inside->getLinearVel(*this->physics_world).length() * (3600.0f / 1000.f);
+			const Vec4f vel = vehicle_controller_inside ? vehicle_controller_inside->getLinearVel(*this->physics_world) : player_physics.getLinearVel();
+			const float speed_km_h = vel.length() * (3600.0f / 1000.f);
 			misc_info_ui.showVehicleSpeed(speed_km_h);
 			//misc_info_ui.showVehicleInfo(vehicle_controller_inside->getUIInfoMsg());
 		}
@@ -7217,6 +7226,18 @@ void GUIClient::timerEvent(const MouseCursorState& mouse_cursor_state)
 		time_since_update_packet_sent.reset();
 	}
 
+
+	// Send WorldSettingsUpdate message to server if we made a local change to the world settings in the UI.
+	if(world_settings_locally_dirty && (world_settings_local_change_timer.elapsed() >= 1.0) && client_thread)
+	{
+		MessageUtils::initPacket(scratch_packet, Protocol::WorldSettingsUpdate);
+		connected_world_settings.writeToStream(scratch_packet);
+		enqueueMessageToSend(*client_thread, scratch_packet);
+
+		world_settings_locally_dirty = false;
+	}
+
+
 	{
 		// Show a decibel level: http://msp.ucsd.edu/techniques/v0.08/book-html/node6.html
 		// cur_level = 0.01 gives log_10(0.01 / 0.01) = 0.
@@ -8045,7 +8066,7 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 						}
 						 
 						AnimEvents anim_events;
-						avatar->graphics.setOverallTransform(*opengl_engine, *physics_world, pos, rotation, use_xyplane_speed_rel_ground_override, xyplane_speed_rel_ground_override,
+						avatar->graphics.setOverallTransform(*opengl_engine, *physics_world, *particle_manager, pos, rotation, use_xyplane_speed_rel_ground_override, xyplane_speed_rel_ground_override,
 							avatar->avatar_settings.pre_ob_to_world_matrix, avatar->anim_state, cur_time, dt, pose_constraint, anim_events);
 						
 						if(!BitUtils::isBitSet(avatar->anim_state, AvatarGraphics::ANIM_STATE_IN_AIR) && anim_events.footstrike && !pose_constraint.sitting) // If avatar is on ground, and the anim played a footstrike
@@ -8426,7 +8447,8 @@ void GUIClient::setThirdPersonCameraPosition(double dt)
 
 			opengl_engine->getCurrentScene()->dof_blur_focus_distance = myMax(0.01f, cam_eye_dist - 0.015f);
 
-			photo_mode_ui.autofocusDistSet(cam_eye_dist);
+			if(photo_mode_ui)
+				photo_mode_ui->autofocusDistSet(cam_eye_dist);
 		}
 	}
 }
@@ -9162,38 +9184,36 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 			this->connected_world_settings.copyNetworkStateFrom(m->world_settings); // Store world settings to be used later
 			this->received_world_settings_since_connect_or_world_change = true;
 
-			this->ui_interface->updateWorldSettingsUIFromWorldSettings(); // Update UI
+			bool ignore_update = false; // If we generated this world settings update by changing something in the local world settings UI,
+			// we want to ignore this update coming back from the server.
 
 			if(!m->is_initial_send)
-				showInfoNotification("World settings updated");
-
-			// Reload terrain by shutting it down, will be recreated in GUIClient::updateGroundPlane().
-			if(this->terrain_system.nonNull())
 			{
-				terrain_system->shutdown();
-				terrain_system = NULL;
+				ignore_update = m->sender_avatar_UID == this->client_avatar_uid;
+			
+				if(!ignore_update)
+					showInfoNotification("World settings updated");
 			}
 
-			if(physics_world.nonNull())
+			if(!ignore_update)
 			{
-				physics_world->setWaterBuoyancyEnabled(BitUtils::isBitSet(this->connected_world_settings.terrain_spec.flags, TerrainSpec::WATER_ENABLED_FLAG));
-				const float use_water_z = myClamp(this->connected_world_settings.terrain_spec.water_z, -1.0e8f, 1.0e8f); // Avoid NaNs, Infs etc.
-				physics_world->setWaterZ(use_water_z);
-			}
+				this->ui_interface->updateWorldSettingsUIFromWorldSettings(); // Update UI
 
-			if(opengl_engine)
-			{
-				const float sun_phi   = this->connected_world_settings.sun_phi;
-				const float sun_theta = this->connected_world_settings.sun_theta;
-				opengl_engine->setEnvMapTransform(Matrix3f::rotationAroundZAxis(sun_phi));
-
+				// Reload terrain by shutting it down, will be recreated in GUIClient::updateGroundPlane().
+				if(this->terrain_system)
 				{
-					OpenGLMaterial env_mat;
-					env_mat.tex_matrix = Matrix2f(-1 / Maths::get2Pi<float>(), 0, 0, 1 / Maths::pi<float>());
-					opengl_engine->setEnvMat(env_mat);
+					terrain_system->shutdown();
+					terrain_system = NULL;
 				}
 
-				opengl_engine->setSunDir(normalise(Vec4f(std::cos(sun_phi) * sin(sun_theta), std::sin(sun_phi) * sin(sun_theta), cos(sun_theta), 0)));
+				if(physics_world)
+				{
+					physics_world->setWaterBuoyancyEnabled(BitUtils::isBitSet(this->connected_world_settings.terrain_spec.flags, TerrainSpec::WATER_ENABLED_FLAG));
+					const float use_water_z = myClamp(this->connected_world_settings.terrain_spec.water_z, -1.0e8f, 1.0e8f); // Avoid NaNs, Infs etc.
+					physics_world->setWaterZ(use_water_z);
+				}
+
+				applyWorldSettingsToOpenGLEngine();
 			}
 		}
 		break;
@@ -12991,6 +13011,7 @@ void GUIClient::connectToServer(const URLParseResults& parse_res)
 
 	this->connection_state = ServerConnectionState_Connecting;
 	this->received_world_settings_since_connect_or_world_change = false;
+	this->world_settings_locally_dirty = false;
 }
 
 
@@ -13111,6 +13132,7 @@ void GUIClient::changeToDifferentWorld(const URLParseResults& parse_res)
 	}
 
 	this->received_world_settings_since_connect_or_world_change = false;
+	this->world_settings_locally_dirty = false;
 
 
 	audio_engine.playOneShotSound(resources_dir_path + "/sounds/462089__newagesoup__ethereal-woosh_normalised_mono.mp3", 
@@ -14538,7 +14560,7 @@ void GUIClient::createPathControlledPathVisObjects(const WorldObject& ob)
 					std::vector<GLUIText::CharPositionInfo> char_positions_font_coords;
 					Rect2f rect_os;
 					OpenGLTextureRef atlas_texture;
-					Reference<OpenGLMeshRenderData> meshdata = GLUIText::makeMeshDataForText(opengl_engine, gl_ui->font_char_text_cache.ptr(), gl_ui->getFonts(), gl_ui->getEmojiFonts(), use_text, 
+					Reference<OpenGLMeshRenderData> meshdata = GLUIText::makeMeshDataForText(opengl_engine.ptr(), gl_ui->font_char_text_cache.ptr(), gl_ui->getFonts(), gl_ui->getEmojiFonts(), use_text, 
 						/*font size px=*/font_size_px, /*vert_pos_scale=*/(1.f / font_size_px), /*render SDF=*/true, this->stack_allocator, rect_os, atlas_texture, char_positions_font_coords);
 
 					GLObjectRef opengl_ob = opengl_engine->allocateObject();
@@ -14879,7 +14901,7 @@ void GUIClient::onMouseWheelEvent(MouseWheelEvent& e)
 		else if(cam_controller.thirdPersonEnabled())
 		{
 			const bool scrolled_all_way_in = cam_controller.handleScrollWheelEvent((float)e.angle_delta.y);
-			const bool change_to_first_person = scrolled_all_way_in && !photo_mode_ui.isPhotoModeEnabled();
+			const bool change_to_first_person = scrolled_all_way_in && !photo_mode_ui;
 			if(change_to_first_person)
 			{
 				ui_interface->enableFirstPersonCamera();
@@ -14920,7 +14942,8 @@ void GUIClient::viewportResized(int w, int h)
 	}
 
 	chat_ui.viewportResized(w, h);
-	photo_mode_ui.viewportResized(w, h);
+	if(photo_mode_ui)
+		photo_mode_ui->viewportResized(w, h);
 	if(minimap)
 		minimap->viewportResized(w, h);
 }
@@ -15356,9 +15379,15 @@ void GUIClient::setSelfieModeEnabled(bool enabled)
 void GUIClient::setPhotoModeEnabled(bool enabled)
 {
 	if(enabled)
-		this->photo_mode_ui.enablePhotoModeUI();
+	{
+		this->photo_mode_ui = new PhotoModeUI(this, gl_ui, this->settings);
+	}
 	else
-		this->photo_mode_ui.disablePhotoModeUI();
+	{
+		if(this->photo_mode_ui)
+			this->photo_mode_ui->resetControlsToNonPhotoModeDefaults();
+		this->photo_mode_ui = nullptr;
+	}
 
 	this->gesture_ui.setPhotoModeEnabledUIState(enabled);
 }
@@ -15876,6 +15905,68 @@ void GUIClient::gestureSettingsChanged(const GestureSettings& new_gesture_settin
 
 	// Update gesture UI.
 	gesture_ui.setCurrentGestureSettings(new_gesture_settings);
+}
+
+
+void GUIClient::worldSettingsChangedFromUI(const WorldSettings& new_world_settings)
+{
+	const bool terrain_changed = !(this->connected_world_settings.terrain_spec == new_world_settings.terrain_spec);
+
+	this->connected_world_settings.copyNetworkStateFrom(new_world_settings);
+
+	// Start a timer to send WorldSettingsUpdate message to server.
+	this->world_settings_locally_dirty = true;
+	world_settings_local_change_timer.reset();
+
+	// Reload terrain by shutting it down, will be recreated in GUIClient::updateGroundPlane().
+	if(terrain_changed)
+	{
+		if(this->terrain_system)
+		{
+			terrain_system->shutdown();
+			terrain_system = NULL;
+		}
+
+		if(physics_world)
+		{
+			physics_world->setWaterBuoyancyEnabled(BitUtils::isBitSet(this->connected_world_settings.terrain_spec.flags, TerrainSpec::WATER_ENABLED_FLAG));
+			const float use_water_z = myClamp(this->connected_world_settings.terrain_spec.water_z, -1.0e8f, 1.0e8f); // Avoid NaNs, Infs etc.
+			physics_world->setWaterZ(use_water_z);
+		}
+	}
+
+
+	applyWorldSettingsToOpenGLEngine();
+}
+
+
+void GUIClient::applyWorldSettingsToOpenGLEngine()
+{
+	if(opengl_engine)
+	{
+		const float sun_phi   = this->connected_world_settings.sun_phi;
+		const float sun_theta = this->connected_world_settings.sun_theta;
+		const Vec4f sun_dir = Vec4f(std::cos(sun_phi) * sin(sun_theta), std::sin(sun_phi) * sin(sun_theta), cos(sun_theta), 0);
+		assert(sun_dir.isUnitLength());
+		if(opengl_engine->getSunDir() != sun_dir)
+		{
+			// Avoid calling setEnvMat if dir not changed as clears env (sky) texture
+			OpenGLMaterial env_mat;
+			env_mat.tex_matrix = Matrix2f(-1 / Maths::get2Pi<float>(), 0, 0, 1 / Maths::pi<float>());
+			//if(opengl_engine->getCurrentScene()->env_ob->materials[0].tex_matrix != env_mat.tex_matrix)
+			opengl_engine->setEnvMat(env_mat);
+
+			opengl_engine->setSunDir(sun_dir);
+		}
+
+		auto sanitiseA           = [](float value) -> float { return (!isFinite(value)) ? 0.f : myMax(0.f,   value); };
+		auto sanitiseScaleHeight = [](float value) -> float { return (!isFinite(value)) ? 1.f : myMax(0.01f, value); };
+
+		opengl_engine->getCurrentScene()->fog_settings.layer_0_A = sanitiseA(this->connected_world_settings.fog_settings.layer_0_A);
+		opengl_engine->getCurrentScene()->fog_settings.layer_0_B = 1.f / sanitiseScaleHeight(this->connected_world_settings.fog_settings.layer_0_scale_height);
+		opengl_engine->getCurrentScene()->fog_settings.layer_1_A = sanitiseA(this->connected_world_settings.fog_settings.layer_1_A);
+		opengl_engine->getCurrentScene()->fog_settings.layer_1_B = 1.f / sanitiseScaleHeight(this->connected_world_settings.fog_settings.layer_1_scale_height);
+	}
 }
 
 
@@ -16415,7 +16506,8 @@ void GUIClient::hideUI()
 	gesture_ui.setVisible(false);
 	misc_info_ui.setVisible(false);
 	chat_ui.setVisible(false);
-	photo_mode_ui.setVisible(false);
+	if(photo_mode_ui)
+		photo_mode_ui->setVisible(false);
 	if(minimap)
 		minimap->setVisible(false);
 
@@ -16432,7 +16524,8 @@ void GUIClient::unhideUIIfHidden()
 		gesture_ui.setVisible(true);
 		misc_info_ui.setVisible(true);
 		chat_ui.setVisible(true);
-		photo_mode_ui.setVisible(true);
+		if(photo_mode_ui)
+			photo_mode_ui->setVisible(true);
 		if(minimap)
 			minimap->setVisible(true);
 
@@ -16448,7 +16541,7 @@ void GUIClient::showErrorNotification(const std::string& message)
 	//args.background_alpha = 0.8f;
 	args.text_colour = Colour3f(0.f);
 	args.padding_px = 8;
-	GLUITextViewRef text_view = new GLUITextView(*gl_ui, opengl_engine, UTF8Utils::sanitiseUTF8String(message), Vec2f(0,0), args);
+	GLUITextViewRef text_view = new GLUITextView(*gl_ui, UTF8Utils::sanitiseUTF8String(message), Vec2f(0,0), args);
 
 	gl_ui->addWidget(text_view);
 
@@ -16474,7 +16567,7 @@ void GUIClient::showInfoNotification(const std::string& message)
 	//args.background_alpha = 0.8f;
 	args.text_colour = Colour3f(0.f);
 	args.padding_px = 8;
-	GLUITextViewRef text_view = new GLUITextView(*gl_ui, opengl_engine, UTF8Utils::sanitiseUTF8String(message), Vec2f(0,0), args);
+	GLUITextViewRef text_view = new GLUITextView(*gl_ui, UTF8Utils::sanitiseUTF8String(message), Vec2f(0,0), args);
 
 	gl_ui->addWidget(text_view);
 
@@ -16500,7 +16593,7 @@ void GUIClient::showScriptMessage(const std::string& message)
 	//args.background_alpha = 0.8f;
 	args.text_colour = Colour3f(0.f);
 	args.padding_px = 8;
-	GLUITextViewRef text_view = new GLUITextView(*gl_ui, opengl_engine, UTF8Utils::sanitiseUTF8String(message), Vec2f(0,0), args);
+	GLUITextViewRef text_view = new GLUITextView(*gl_ui, UTF8Utils::sanitiseUTF8String(message), Vec2f(0,0), args);
 
 	gl_ui->addWidget(text_view);
 

@@ -135,7 +135,7 @@ private slots:;
 	void objectEditedSlot();
 	void scriptChangedFromEditorSlot();
 	void parcelEditedSlot();
-	void worldSettingsAppliedSlot();
+	void worldSettingsChangedSlot();
 	void environmentSettingChangedSlot();
 	void bakeObjectLightmapSlot(); // Bake the currently selected object lightmap
 	void bakeObjectLightmapHighQualSlot(); // Bake the currently selected object lightmap
@@ -296,7 +296,7 @@ public:
 	virtual void* getID3D11Device() const override;
 
 	// File selection
-	virtual std::string showOpenFileDialog(const std::string& caption, const std::vector<FileTypeFilter>& file_type_filters, const std::string& settings_key) override; // Returns path to file selected or empty string if cancelled.
+	virtual std::string showOpenFileDialog(const std::string& caption, const std::vector<FileTypeFilter>& file_type_filters, const std::string& settings_key, int file_picker_id) override; // Returns path to file selected or empty string if cancelled.
 	//------------------------------------------------- End UIInterface -----------------------------------------------------------
 
 public:

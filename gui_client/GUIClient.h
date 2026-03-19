@@ -16,7 +16,6 @@ Copyright Glare Technologies Limited 2024 -
 #include "ObInfoUI.h"
 #include "MiscInfoUI.h"
 #include "HeadUpDisplayUI.h"
-#include "PhotoModeUI.h"
 #include "ChatUI.h"
 #include "DownloadingResourceQueue.h"
 #include "LoadItemQueue.h"
@@ -97,6 +96,7 @@ class PBOPool;
 class VBO;
 class PBO;
 class GestureSettings;
+class PhotoModeUI;
 namespace Scripting { class ObjectScriptsEvaluator; }
 
 
@@ -251,6 +251,8 @@ public:
 	std::string getCurrentURL() const;
 	void goBack();
 	void gestureSettingsChanged(const GestureSettings& new_gesture_settings);
+	void worldSettingsChangedFromUI(const WorldSettings& new_world_settings);
+	void applyWorldSettingsToOpenGLEngine();
 public:
 	void rotateObject(WorldObjectRef ob, const Vec4f& axis, float angle);
 	void selectObject(const WorldObjectRef& ob, int selected_mat_index);
@@ -300,6 +302,7 @@ public:
 	bool isResourceCurrentlyNeededForObjectGivenIsDependency(const URLString& url, const WorldObject* ob) const;
 	bool isDownloadingResourceCurrentlyNeeded(const URLString& url) const;
 	void handleDownloadedAnimationResource(const std::string& local_path, const Reference<Resource>& resource, Reference<LoadedBuffer> loaded_buffer);
+	void handleAnimationFilePickedFromEmscripten(const std::string& local_anim_path);
 public:
 	bool objectModificationAllowed(const WorldObject& ob);
 	bool connectedToUsersWorldOrGodUser();
@@ -524,6 +527,8 @@ public:
 
 	WorldDetails connected_world_details;
 	WorldSettings connected_world_settings; // Settings for the world we are connected to, if any.
+	bool world_settings_locally_dirty;
+	Timer world_settings_local_change_timer;
 	
 
 	Reference<Indigo::Mesh> ground_quad_mesh;
@@ -697,7 +702,7 @@ public:
 	MiscInfoUI misc_info_ui; // For showing messages from the server, vehicle speed etc.
 	HeadUpDisplayUI hud_ui; // Draws stuff like markers for other avatars
 	ChatUI chat_ui; // Draws chat user-interface, showing chat from other users plus the line edit for chatting.
-	PhotoModeUI photo_mode_ui;
+	Reference<PhotoModeUI> photo_mode_ui;
 	Reference<MiniMap> minimap;
 
 	bool running_destructor;

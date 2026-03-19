@@ -28,7 +28,7 @@ For adding new gestures and editing or removing existing gestures.
 class GestureManagerUI : public GLUICallbackHandler, public ThreadSafeRefCounted
 {
 public:
-	GestureManagerUI(Reference<OpenGLEngine>& opengl_engine_, GUIClient* gui_client_, GLUIRef gl_ui_, const GestureSettings& gesture_settings);
+	GestureManagerUI(GUIClient* gui_client_, GLUIRef gl_ui_, const GestureSettings& gesture_settings);
 	~GestureManagerUI();
 
 	void think();
@@ -38,15 +38,16 @@ public:
 	virtual void eventOccurred(GLUICallbackEvent& event) override; // From GLUICallbackHandler
 	virtual void closeWindowEventOccurred(GLUICallbackEvent& event) override; // From GLUICallbackHandler
 
+	void handleAnimationFilePickedFromEmscripten(const std::string& local_anim_path);
 
 	void updateWidgetPositions();
 private:
+	void handleAddGestureFileSelected(const std::string& local_anim_path);
 	void rebuildGridForGestureSettings();
 
 
 	GUIClient* gui_client;
 	GLUIRef gl_ui;
-	Reference<OpenGLEngine> opengl_engine;
 
 
 	struct PerGestureUI
