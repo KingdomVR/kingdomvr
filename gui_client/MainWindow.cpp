@@ -107,12 +107,6 @@ Copyright Glare Technologies Limited 2024 -
 #include <tracy/Tracy.hpp>
 
 
-// If we are building on Windows, and we are not in Release mode (e.g. BUILD_TESTS is enabled), then make sure the console window is shown.
-#if defined(_WIN32) && defined(BUILD_TESTS)
-#pragma comment(linker, "/SUBSYSTEM:CONSOLE")
-#endif
-
-
 static const Colour4f PARCEL_OUTLINE_COLOUR    = Colour4f::fromHTMLHexString("f09a13"); // orange
 
 static std::vector<std::string> qt_debug_msgs;

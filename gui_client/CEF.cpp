@@ -61,10 +61,7 @@ public:
 		// See https://github.com/chromiumembedded/cef/issues/4051
 		command_line->AppendSwitch("do-not-de-elevate");
 
-		// Enable Chromium/CEF verbose logging to help debug media/decoder problems.
-		// This will cause chromium internal logs to be produced (useful for media decoder failures).
-		command_line->AppendSwitch("enable-logging");
-		command_line->AppendSwitchWithValue("v", "1");
+		// Keep command-line logging switches disabled by default to avoid noisy runtime behavior.
 
 #ifdef OSX
 		// Disable GPU compositing for macOS to force software rendering via OnPaint callback.
