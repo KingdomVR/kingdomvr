@@ -21,6 +21,10 @@ on:
         description: "Optional direct URL to a prebuilt CEF binary distribution (tar.bz2, tar.gz, or zip). If provided, CEF_SUPPORT will be enabled and libcef_dll_wrapper/cef_sandbox built or used from prebuilt artifacts."
         required: false
         default: ""
+      kingdomvr_branch:
+        description: "Branch to checkout kingdomvr from."
+        required: false
+        default: "master"
 
 permissions:
   contents: write
@@ -350,6 +354,7 @@ jobs:
       - name: Checkout this repo (kingdomvr) into work/substrata
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.kingdomvr_branch }}
           path: work/substrata
 
       - name: Checkout glare-core (JerryBerry12 fork)
