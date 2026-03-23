@@ -180,6 +180,10 @@ void GlWidget::initGamepadsSlot()
 		connect(gamepad, SIGNAL(buttonXChanged(bool)), this, SLOT(buttonXChangedSlot(bool)));
 		connect(gamepad, SIGNAL(buttonXChanged(bool)), this, SIGNAL(gamepadButtonXChangedSignal(bool)));
 		connect(gamepad, SIGNAL(buttonAChanged(bool)), this, SIGNAL(gamepadButtonAChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonBChanged(bool)), this, SIGNAL(gamepadButtonBChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonYChanged(bool)), this, SIGNAL(gamepadButtonYChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonL1Changed(bool)), this, SIGNAL(gamepadButtonL1ChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonR1Changed(bool)), this, SIGNAL(gamepadButtonR1ChangedSignal(bool)));
 	}
 #endif
 }

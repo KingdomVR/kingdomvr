@@ -98,6 +98,10 @@ signals:;
 	void focusOutSignal();
 	void gamepadButtonXChangedSignal(bool pressed);
 	void gamepadButtonAChangedSignal(bool pressed);
+	void gamepadButtonBChangedSignal(bool pressed);
+	void gamepadButtonYChangedSignal(bool pressed);
+	void gamepadButtonL1ChangedSignal(bool pressed);
+	void gamepadButtonR1ChangedSignal(bool pressed);
 
 private slots:
 	void gamepadInputSlot();

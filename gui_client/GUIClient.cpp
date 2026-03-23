@@ -226,6 +226,8 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	up_down = false;
 	down_down = false;
 	B_down = false;
+	gamepad_l1_down = false;
+	gamepad_r1_down = false;
 
 	texture_server = new TextureServer(/*use_canonical_path_keys=*/false); // Just used for caching textures for GUIClient::setMaterialFlagsForObject()
 
@@ -5361,41 +5363,42 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 		}
 
 		const float selfie_move_factor = cam_controller.selfieModeEnabled() ? -1.f : 1.f;
+		const bool shift_or_gamepad_boost = SHIFT_down || gamepad_l1_down;
 
 		if(W_down || up_down)
-		{	player_physics.processMoveForwards(1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveForwards(1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(S_down || down_down)
-		{	player_physics.processMoveForwards(-1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveForwards(-1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(A_down)
-		{	player_physics.processStrafeRight(-1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processStrafeRight(-1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(D_down)
-		{	player_physics.processStrafeRight(1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processStrafeRight(1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 
 		// Move vertically up or down in flymode.
 		if(space_down)
-		{	player_physics.processMoveUp(1.f, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveUp(1.f, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(C_down && !CTRL_down) // Check CTRL_down to prevent CTRL+C shortcut moving camera up.
-		{	player_physics.processMoveUp(-1.f, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveUp(-1.f, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 
 		// Turn left or right
 		const float base_rotate_speed = 200;
 		if(left_down)
-		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt * -base_rotate_speed * (SHIFT_down ? 3.0 : 1.0)); }
+		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt * -base_rotate_speed * (shift_or_gamepad_boost ? 3.0 : 1.0)); }
 		if(right_down)
-		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt *  base_rotate_speed * (SHIFT_down ? 3.0 : 1.0)); }
+		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt *  base_rotate_speed * (shift_or_gamepad_boost ? 3.0 : 1.0)); }
 
 		if(misc_info_ui.movement_button && misc_info_ui.movement_button->pressed)
 		{
 			const Vec2f frac_coords = div((gl_ui->getLastMouseUICoords() - misc_info_ui.movement_button->rect.getMin()), misc_info_ui.movement_button->rect.getWidths());
 
-			player_physics.processStrafeRight (selfie_move_factor * 4 * (frac_coords.x - 0.5f), SHIFT_down, this->cam_controller);
-			player_physics.processMoveForwards(selfie_move_factor * 4 * (frac_coords.y - 0.5f), SHIFT_down, this->cam_controller);
+			player_physics.processStrafeRight (selfie_move_factor * 4 * (frac_coords.x - 0.5f), shift_or_gamepad_boost, this->cam_controller);
+			player_physics.processMoveForwards(selfie_move_factor * 4 * (frac_coords.y - 0.5f), shift_or_gamepad_boost, this->cam_controller);
 			
 			move_key_pressed = true;
 		}
 
 
-		input_out.SHIFT_down =	SHIFT_down;
+		input_out.SHIFT_down =	shift_or_gamepad_boost;
 		input_out.CTRL_down =	CTRL_down;
 		input_out.W_down =		W_down;
 		input_out.S_down =		S_down;
@@ -5412,6 +5415,8 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 
 	if(ui_interface->gamepadAttached())
 	{
+		const bool shift_or_gamepad_boost = SHIFT_down || gamepad_l1_down;
+
 		// Since we don't have the shift key available, move a bit faster in flymode
 		const float gamepad_move_speed_factor = player_physics.flyModeEnabled() ? 4.f : 2.f;
 		const float gamepad_rotate_speed = 400;
@@ -5419,13 +5424,13 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 		// Move vertically up or down in flymode.
 		if(ui_interface->gamepadButtonL2() != 0) // Left trigger
 		{	
-			player_physics.processMoveUp(gamepad_move_speed_factor * -pow(ui_interface->gamepadButtonL2(), 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveUp(gamepad_move_speed_factor * -pow(ui_interface->gamepadButtonL2(), 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
 		input_out.left_trigger = ui_interface->gamepadButtonL2();
 
 		if(ui_interface->gamepadButtonR2() != 0) // Right trigger
 		{	
-			player_physics.processMoveUp(gamepad_move_speed_factor * pow(ui_interface->gamepadButtonR2(), 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveUp(gamepad_move_speed_factor * pow(ui_interface->gamepadButtonR2(), 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
 		input_out.right_trigger = ui_interface->gamepadButtonR2();
 
@@ -5433,12 +5438,14 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 		const float axis_left_y = ui_interface->gamepadAxisLeftY();
 		if(axis_left_x != 0)
 		{	
-			player_physics.processStrafeRight(gamepad_move_speed_factor * pow(axis_left_x, 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processStrafeRight(gamepad_move_speed_factor * pow(axis_left_x, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
 		if(axis_left_y != 0)
 		{	
-			player_physics.processMoveForwards(gamepad_move_speed_factor * -pow(axis_left_y, 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveForwards(gamepad_move_speed_factor * -pow(axis_left_y, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
+
+		input_out.SHIFT_down = shift_or_gamepad_boost;
 
 		input_out.axis_left_x = axis_left_x;
 		input_out.axis_left_y = axis_left_y;
@@ -14923,8 +14930,31 @@ void GUIClient::onMouseWheelEvent(MouseWheelEvent& e)
 
 void GUIClient::gamepadButtonXChanged(bool pressed)
 {
-	//if(pressed)
-	//	useActionTriggered(/*use_mouse_cursor=*/false);
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+
+	if(gamepad_l1_down && gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			deleteSelectedObject();
+		return;
+	}
+
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+		{
+			if(!this->selected_ob_picked_up)
+				pickUpSelectedObject();
+			else
+				dropSelectedObject();
+		}
+		return;
+	}
+
+	selectObjectUnderCrosshair();
 }
 
 
@@ -14932,6 +14962,90 @@ void GUIClient::gamepadButtonAChanged(bool pressed)
 {
 	if(pressed)
 		useActionTriggered(/*use_mouse_cursor=*/false);
+}
+
+
+void GUIClient::gamepadButtonBChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	if(gamepad_l1_down && gamepad_r1_down)
+	{
+		try
+		{
+			summonHovercar();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+	else if(gamepad_l1_down)
+	{
+		try
+		{
+			summonBoat();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+	else if(gamepad_r1_down)
+	{
+		try
+		{
+			summonCar();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+	else
+	{
+		try
+		{
+			summonBike();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+}
+
+
+void GUIClient::gamepadButtonYChanged(bool pressed)
+{
+	if(pressed)
+		ui_interface->toggleFlyMode();
+}
+
+
+void GUIClient::gamepadButtonL1Changed(bool pressed)
+{
+	gamepad_l1_down = pressed;
+}
+
+
+void GUIClient::gamepadButtonR1Changed(bool pressed)
+{
+	gamepad_r1_down = pressed;
+}
+
+
+void GUIClient::selectObjectUnderCrosshair()
+{
+	if(opengl_engine.isNull())
+		return;
+
+	MouseEvent mouse_event;
+	mouse_event.cursor_pos = Vec2i(opengl_engine->getMainViewPortWidth() / 2, opengl_engine->getMainViewPortHeight() / 2);
+	mouse_event.gl_coords = Vec2f(0.f);
+
+	doObjectSelectionTraceForMouseEvent(mouse_event);
 }
 
 
@@ -16420,6 +16534,8 @@ void GUIClient::focusOut()
 	up_down = false;
 	down_down = false;
 	B_down = false;
+	gamepad_l1_down = false;
+	gamepad_r1_down = false;
 }
 
 

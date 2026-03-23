@@ -240,10 +240,15 @@ public:
 	void onMouseWheelEvent(MouseWheelEvent& e);
 	void gamepadButtonXChanged(bool pressed);
 	void gamepadButtonAChanged(bool pressed);
+	void gamepadButtonBChanged(bool pressed);
+	void gamepadButtonYChanged(bool pressed);
+	void gamepadButtonL1Changed(bool pressed);
+	void gamepadButtonR1Changed(bool pressed);
 	void viewportResized(int w, int h);
 	void updateGroundPlane();
 	void sendLightmapNeededFlagsSlot();
 	void useActionTriggered(bool use_mouse_cursor); // if use_mouse_cursor is false, use crosshair as cursor instead.
+	void selectObjectUnderCrosshair();
 	void loginButtonClicked();
 	void signupButtonClicked();
 	void loggedInButtonClicked();
@@ -827,6 +832,7 @@ public:
 
 
 	bool SHIFT_down, CTRL_down, A_down, W_down, S_down, D_down, space_down, C_down, left_down, right_down, up_down, down_down, B_down;
+	bool gamepad_l1_down, gamepad_r1_down;
 
 	js::Vector<Reference<ThreadMessage>, 16> temp_msgs;
 

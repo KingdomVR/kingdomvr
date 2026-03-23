@@ -358,6 +358,10 @@ void MainWindow::initialiseUI()
 	connect(ui->glWidget, SIGNAL(mouseWheelSignal(QWheelEvent*)), this, SLOT(glWidgetMouseWheelEvent(QWheelEvent*)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonXChangedSignal(bool)), this, SLOT(gamepadButtonXChanged(bool)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonAChangedSignal(bool)), this, SLOT(gamepadButtonAChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonBChangedSignal(bool)), this, SLOT(gamepadButtonBChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonYChangedSignal(bool)), this, SLOT(gamepadButtonYChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonL1ChangedSignal(bool)), this, SLOT(gamepadButtonL1Changed(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonR1ChangedSignal(bool)), this, SLOT(gamepadButtonR1Changed(bool)));
 	connect(ui->glWidget, SIGNAL(viewportResizedSignal(int, int)), this, SLOT(glWidgetViewportResized(int, int)));
 	connect(ui->glWidget, SIGNAL(cutShortcutActivated()), this, SLOT(glWidgetCutShortcutTriggered()));
 	connect(ui->glWidget, SIGNAL(copyShortcutActivated()), this, SLOT(glWidgetCopyShortcutTriggered()));
@@ -4105,6 +4109,30 @@ void MainWindow::gamepadButtonXChanged(bool pressed)
 void MainWindow::gamepadButtonAChanged(bool pressed)
 {
 	gui_client.gamepadButtonAChanged(pressed);
+}
+
+
+void MainWindow::gamepadButtonBChanged(bool pressed)
+{
+	gui_client.gamepadButtonBChanged(pressed);
+}
+
+
+void MainWindow::gamepadButtonYChanged(bool pressed)
+{
+	gui_client.gamepadButtonYChanged(pressed);
+}
+
+
+void MainWindow::gamepadButtonL1Changed(bool pressed)
+{
+	gui_client.gamepadButtonL1Changed(pressed);
+}
+
+
+void MainWindow::gamepadButtonR1Changed(bool pressed)
+{
+	gui_client.gamepadButtonR1Changed(pressed);
 }
 
 
