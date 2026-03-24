@@ -44,6 +44,7 @@ private slots:;
 	void dialogFinished();
 
 	void modelSelected(QListWidgetItem*);
+	void modelHovered(QListWidgetItem*);
 	void modelDoubleClicked(QListWidgetItem*);
 
 	void filenameChanged(QString& filename);
@@ -58,6 +59,7 @@ private:
 	void loadModelIntoPreview(const std::string& local_path);
 
 	void shutdownGL();
+	void previewListItemModel(QListWidgetItem* item);
 
 	QSettings* settings;
 
@@ -84,6 +86,7 @@ private:
 
 	std::string base_dir_path;
 	std::vector<std::string> models;
+	std::string last_preview_model_path;
 
 	URLString last_url;
 

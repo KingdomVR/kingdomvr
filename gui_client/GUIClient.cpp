@@ -10097,6 +10097,11 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 	bool should_display_voxel_edit_face_marker = false;
 	if(selectedObjectIsVoxelOb())
 	{
+		const bool gamepad_add_down = gamepad_r1_down;
+		const bool gamepad_delete_down = gamepad_l1_down;
+		const bool add_mode_down = mouse_cursor_state.ctrl_key_down || gamepad_add_down;
+		const bool delete_mode_down = mouse_cursor_state.alt_key_down || gamepad_delete_down;
+
 		// NOTE: Stupid qt: QApplication::keyboardModifiers() doesn't update properly when just CTRL is pressed/released, without any other events.
 		// So use GetAsyncKeyState on Windows, since it actually works.
 #if defined(_WIN32)
@@ -10108,12 +10113,15 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 		//const bool alt_key_down  = (modifiers & Qt::AltModifier)     != 0;
 #endif
 
-		if(mouse_cursor_state.ctrl_key_down || mouse_cursor_state.alt_key_down)
+		if(add_mode_down || delete_mode_down)
 		{
 			//const QPoint mouse_point = ui->glWidget->mapFromGlobal(QCursor::pos());
+			Vec2i trace_cursor_pos = mouse_cursor_state.cursor_pos;
+			if(gamepad_add_down || gamepad_delete_down)
+				trace_cursor_pos = Vec2i(this->getMainViewPortWidth() / 2, this->getMainViewPortHeight() / 2);
 
 			const Vec4f origin = this->cam_controller.getPosition().toVec4fPoint();
-			const Vec4f dir = getDirForPixelTrace(mouse_cursor_state.cursor_pos.x, mouse_cursor_state.cursor_pos.y);
+			const Vec4f dir = getDirForPixelTrace(trace_cursor_pos.x, trace_cursor_pos.y);
 			RayTraceResult results;
 			this->physics_world->traceRay(origin, dir, /*max_t=*/1.0e5f, /*ignore body id=*/JPH::BodyID(), results);
 			if(results.hit_object)
@@ -10130,7 +10138,7 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 						Matrix4f ob_to_world = obToWorldMatrix(*selected_ob);
 						Matrix4f world_to_ob = worldToObMatrix(*selected_ob);
 
-						if(mouse_cursor_state.ctrl_key_down)
+						if(add_mode_down)
 						{
 							const Vec4f point_off_surface = hitpos_ws + results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
 							const Vec4f point_os = world_to_ob * point_off_surface;
@@ -10195,7 +10203,7 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 							opengl_engine->objectMaterialsUpdated(*this->voxel_edit_marker);
 
 						}
-						else if(mouse_cursor_state.alt_key_down)
+						else if(delete_mode_down)
 						{
 							const Vec4f point_under_surface = hitpos_ws - results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
 							const Vec4f point_os = world_to_ob * point_under_surface;

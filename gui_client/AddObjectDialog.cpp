@@ -58,6 +58,7 @@ AddObjectDialog::AddObjectDialog(const std::string& base_dir_path_, QSettings* s
 	//this->avatarSelectWidget->setFilename(settings->value("AddObjectDialogPath").toString());
 
 	connect(this->listWidget, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(modelSelected(QListWidgetItem*)));
+	connect(this->listWidget, SIGNAL(itemEntered(QListWidgetItem*)), this, SLOT(modelHovered(QListWidgetItem*)));
 	connect(this->listWidget, SIGNAL(itemDoubleClicked(QListWidgetItem*)), this, SLOT(modelDoubleClicked(QListWidgetItem*)));
 	connect(this->avatarSelectWidget, SIGNAL(filenameChanged(QString&)), this, SLOT(filenameChanged(QString&)));
 	connect(this->buttonBox, SIGNAL(accepted()), this, SLOT(accepted()));
@@ -76,6 +77,9 @@ AddObjectDialog::AddObjectDialog(const std::string& base_dir_path_, QSettings* s
 	listWidget->setIconSize(QSize(200, 200));
 	listWidget->setResizeMode(QListWidget::Adjust);
 	listWidget->setSelectionMode(QAbstractItemView::NoSelection);
+	listWidget->setMouseTracking(true);
+	if(listWidget->viewport())
+		listWidget->viewport()->setMouseTracking(true);
 	 
 	models.push_back("Quad");
 	models.push_back("Cube");
@@ -127,19 +131,19 @@ void AddObjectDialog::accepted()
 
 void AddObjectDialog::modelSelected(QListWidgetItem* selected_item)
 {
-	if(this->listWidget->currentItem())
-	{
-		const std::string model = QtUtils::toStdString(this->listWidget->currentItem()->text());
+	previewListItemModel(selected_item ? selected_item : this->listWidget->currentItem());
 
-		if(!controller_mode)
-			this->listWidget->setCurrentItem(NULL);
+	if(!controller_mode)
+		this->listWidget->setCurrentItem(NULL);
+}
 
-		const std::string model_path = base_dir_path + "/data/resources/models/" + model + ".obj";
 
-		this->result_path = model_path;
+void AddObjectDialog::modelHovered(QListWidgetItem* hovered_item)
+{
+	if(!hovered_item)
+		return;
 
-		loadModelIntoPreview(model_path);
-	}
+	previewListItemModel(hovered_item);
 }
 
 
@@ -177,6 +181,7 @@ void AddObjectDialog::controllerMoveSelectionGrid(int dx, int dy)
 	row = myClamp(row + dx + dy * cols, 0, this->listWidget->count() - 1);
 	this->listWidget->setCurrentRow(row);
 	this->listWidget->scrollToItem(this->listWidget->currentItem());
+	previewListItemModel(this->listWidget->currentItem());
 }
 
 
@@ -234,6 +239,9 @@ void AddObjectDialog::makeMeshForWidthAndHeight(const std::string& local_image_o
 
 void AddObjectDialog::loadModelIntoPreview(const std::string& local_path)
 {
+	if(!local_path.empty() && local_path == last_preview_model_path)
+		return;
+
 	this->objectPreviewGLWidget->makeCurrent();
 
 	this->loaded_mesh_is_image_cube = false;
@@ -299,19 +307,34 @@ void AddObjectDialog::loadModelIntoPreview(const std::string& local_path)
 		preview_gl_ob->ob_to_world_matrix = ::leftTranslateAffine3(Vec4f(0, 0, z_trans, 0), preview_gl_ob->ob_to_world_matrix);
 
 		objectPreviewGLWidget->opengl_engine->addObject(preview_gl_ob);
+		last_preview_model_path = local_path;
 	}
 	catch(Indigo::IndigoException& e)
 	{
 		this->loaded_materials.clear();
+		last_preview_model_path.clear();
 
 		QtUtils::showErrorMessageDialog(QtUtils::toQString(e.what()), this);
 	}
 	catch(glare::Exception& e)
 	{
 		this->loaded_materials.clear();
+		last_preview_model_path.clear();
 
 		QtUtils::showErrorMessageDialog(QtUtils::toQString(e.what()), this);
 	}
+}
+
+
+void AddObjectDialog::previewListItemModel(QListWidgetItem* item)
+{
+	if(!item)
+		return;
+
+	const std::string model = QtUtils::toStdString(item->text());
+	const std::string model_path = base_dir_path + "/data/resources/models/" + model + ".obj";
+	this->result_path = model_path;
+	loadModelIntoPreview(model_path);
 }
 
 
