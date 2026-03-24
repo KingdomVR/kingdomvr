@@ -15101,7 +15101,8 @@ void GUIClient::nudgeSelectedObject(const Vec3d& delta)
 		return;
 
 	const double step = ui_interface->snapToGridCheckBoxChecked() ? ui_interface->gridSpacing() : 0.2;
-	const Vec4f desired_new_ob_pos = this->selected_ob->pos.toVec4fPoint() + toVec4fPoint(delta * step);
+	const Vec3d delta_scaled = delta * step;
+	const Vec4f desired_new_ob_pos = this->selected_ob->pos.toVec4fPoint() + Vec4f((float)delta_scaled.x, (float)delta_scaled.y, (float)delta_scaled.z, 0.f);
 	tryToMoveObject(this->selected_ob, desired_new_ob_pos);
 }
 
