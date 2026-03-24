@@ -1589,6 +1589,12 @@ void MainWindow::openAddObjectDialog(bool controller_mode)
 	{
 		try
 		{
+			if(!dialog.ensureCreationPayloadReady())
+			{
+				showErrorNotification("Unable to create object: selected model was not loaded correctly.");
+				return;
+			}
+
 			const Vec3d adjusted_ob_pos = ob_pos + gui_client.cam_controller.getRightVec() * dialog.ob_cam_right_translation + gui_client.cam_controller.getUpVec() * dialog.ob_cam_up_translation; // Centre object in front of camera
 
 			// Some mesh types have a rotation to bring them to our z-up convention.  Don't change the rotation on those.

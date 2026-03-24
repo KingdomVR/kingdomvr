@@ -158,7 +158,18 @@ void AddObjectDialog::enableControllerModelLibraryOnlyMode()
 	this->listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
 	if(this->listWidget->count() > 0)
 	{
-		this->listWidget->setCurrentRow(0);
+		int default_row = 0;
+		for(int i=0; i<this->listWidget->count(); ++i)
+		{
+			QListWidgetItem* item = this->listWidget->item(i);
+			if(item && item->text() == "Cube")
+			{
+				default_row = i;
+				break;
+			}
+		}
+
+		this->listWidget->setCurrentRow(default_row);
 	}
 
 	this->listWidget->setFocus();
@@ -197,9 +208,28 @@ void AddObjectDialog::controllerCreateSelectedModel()
 	if(!item)
 		return;
 
-	modelSelected(item); // Ensure loaded_materials/result_path are populated through normal codepath.
-	if(!loaded_materials.empty())
+	const std::string model = QtUtils::toStdString(item->text());
+	const std::string model_path = base_dir_path + "/data/resources/models/" + model + ".obj";
+	this->result_path = model_path;
+
+	// Force the selected model to be loaded right before accept, so createObject uses the same payload as keyboard/mouse flow.
+	if(result_path != model_path || loaded_materials.empty() || loaded_mesh.isNull())
+		loadModelIntoPreview(model_path);
+
+	if((result_path == model_path) && ensureCreationPayloadReady())
 		accept();
+}
+
+
+bool AddObjectDialog::ensureCreationPayloadReady()
+{
+	if(result_path.empty())
+		return false;
+
+	if(loaded_materials.empty() || (loaded_mesh.isNull() && loaded_voxels.empty()))
+		loadModelIntoPreview(result_path);
+
+	return !loaded_materials.empty() && (loaded_mesh.nonNull() || !loaded_voxels.empty());
 }
 
 

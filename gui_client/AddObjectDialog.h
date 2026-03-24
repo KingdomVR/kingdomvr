@@ -38,6 +38,7 @@ public:
 	void enableControllerModelLibraryOnlyMode();
 	void controllerMoveSelectionGrid(int dx, int dy);
 	void controllerCreateSelectedModel();
+	bool ensureCreationPayloadReady();
 
 private slots:;
 	void accepted();
