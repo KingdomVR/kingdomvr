@@ -139,6 +139,10 @@ MainWindow::MainWindow(const std::string& base_dir_path_, const std::string& app
 	scratch_packet(SocketBufferOutStream::DontUseNetworkByteOrder),
 	settings(NULL),
 	user_details(NULL),
+	active_add_object_dialog(NULL),
+	gamepad_r1_down(false),
+	gamepad_list_nav_up_latched(false),
+	gamepad_list_nav_down_latched(false),
 	ui(NULL),
 	minidump_sender(NULL)
 	//game_controller(NULL)
@@ -366,6 +370,7 @@ void MainWindow::initialiseUI()
 	connect(ui->glWidget, SIGNAL(gamepadButtonDownChangedSignal(bool)), this, SLOT(gamepadButtonDownChanged(bool)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonLeftChangedSignal(bool)), this, SLOT(gamepadButtonLeftChanged(bool)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonRightChangedSignal(bool)), this, SLOT(gamepadButtonRightChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadAxisLeftYChangedSignal(double)), this, SLOT(gamepadAxisLeftYChanged(double)));
 	connect(ui->glWidget, SIGNAL(viewportResizedSignal(int, int)), this, SLOT(glWidgetViewportResized(int, int)));
 	connect(ui->glWidget, SIGNAL(cutShortcutActivated()), this, SLOT(glWidgetCutShortcutTriggered()));
 	connect(ui->glWidget, SIGNAL(copyShortcutActivated()), this, SLOT(glWidgetCopyShortcutTriggered()));
@@ -1539,7 +1544,7 @@ void MainWindow::on_actionAvatarSettings_triggered()
 }
 
 
-void MainWindow::on_actionAddObject_triggered()
+void MainWindow::openAddObjectDialog(bool controller_mode)
 {
 	const Vec3d ob_pos = gui_client.cam_controller.getFirstPersonPosition() + gui_client.cam_controller.getForwardsVec() * 2.0f;
 
@@ -1563,7 +1568,14 @@ void MainWindow::on_actionAddObject_triggered()
 #endif
 		main_task_manager, high_priority_task_manager
 	);
+	if(controller_mode)
+		dialog.enableControllerModelLibraryOnlyMode();
+
+	active_add_object_dialog = &dialog;
+	gamepad_list_nav_up_latched = false;
+	gamepad_list_nav_down_latched = false;
 	const int res = dialog.exec();
+	active_add_object_dialog = NULL;
 	ui->glWidget->makeCurrent(); // Change back from the dialog GL context to the mainwindow GL context.
 
 	if((res == QDialog::Accepted) && !dialog.loaded_materials.empty()) // If dialog was accepted, and we loaded an object successfully in it:
@@ -1607,6 +1619,12 @@ void MainWindow::on_actionAddObject_triggered()
 			m.exec();
 		}
 	}
+}
+
+
+void MainWindow::on_actionAddObject_triggered()
+{
+	openAddObjectDialog(/*controller_mode=*/false);
 }
 
 
@@ -4112,6 +4130,21 @@ void MainWindow::gamepadButtonXChanged(bool pressed)
 
 void MainWindow::gamepadButtonAChanged(bool pressed)
 {
+	if(!pressed)
+		return;
+
+	if(active_add_object_dialog)
+	{
+		active_add_object_dialog->controllerCreateSelectedModel();
+		return;
+	}
+
+	if(gamepad_r1_down)
+	{
+		openAddObjectDialog(/*controller_mode=*/true);
+		return;
+	}
+
 	gui_client.gamepadButtonAChanged(pressed);
 }
 
@@ -4136,6 +4169,7 @@ void MainWindow::gamepadButtonL1Changed(bool pressed)
 
 void MainWindow::gamepadButtonR1Changed(bool pressed)
 {
+	gamepad_r1_down = pressed;
 	gui_client.gamepadButtonR1Changed(pressed);
 }
 
@@ -4161,6 +4195,42 @@ void MainWindow::gamepadButtonLeftChanged(bool pressed)
 void MainWindow::gamepadButtonRightChanged(bool pressed)
 {
 	gui_client.gamepadButtonRightChanged(pressed);
+}
+
+
+void MainWindow::gamepadAxisLeftYChanged(double value)
+{
+	if(!active_add_object_dialog)
+		return;
+
+	const double engage = 0.6;
+	const double release = 0.3;
+
+	if(value <= -engage)
+	{
+		if(!gamepad_list_nav_up_latched)
+		{
+			active_add_object_dialog->controllerMoveSelection(-1);
+			gamepad_list_nav_up_latched = true;
+		}
+	}
+	else if(value > -release)
+	{
+		gamepad_list_nav_up_latched = false;
+	}
+
+	if(value >= engage)
+	{
+		if(!gamepad_list_nav_down_latched)
+		{
+			active_add_object_dialog->controllerMoveSelection(1);
+			gamepad_list_nav_down_latched = true;
+		}
+	}
+	else if(value < release)
+	{
+		gamepad_list_nav_down_latched = false;
+	}
 }
 
 

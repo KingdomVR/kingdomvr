@@ -35,6 +35,10 @@ public:
 	static void tryLoadTexturesForPreviewOb(Reference<GLObject> preview_gl_ob, std::vector<WorldMaterialRef>& world_materials, OpenGLEngine* opengl_engine, 
 		TextureServer& texture_server, QWidget* parent_widget);
 
+	void enableControllerModelLibraryOnlyMode();
+	void controllerMoveSelection(int delta_rows);
+	void controllerCreateSelectedModel();
+
 private slots:;
 	void accepted();
 	void dialogFinished();
@@ -95,4 +99,6 @@ private:
 
 	glare::TaskManager* main_task_manager;
 	glare::TaskManager* high_priority_task_manager;
+
+	bool controller_mode;
 };

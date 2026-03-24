@@ -27,6 +27,7 @@ Copyright Glare Technologies Limited 2022 -
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QErrorMessage>
 #include <QtWidgets/QListWidget>
+#include <QtWidgets/QTabBar>
 #include <QtCore/QSettings>
 #include <QtCore/QTimer>
 
@@ -39,7 +40,8 @@ AddObjectDialog::AddObjectDialog(const std::string& base_dir_path_, QSettings* s
 	dev_manager(dev_manager_),
 	loaded_mesh_is_image_cube(false),
 	main_task_manager(main_task_manager_),
-	high_priority_task_manager(high_priority_task_manager_)
+	high_priority_task_manager(high_priority_task_manager_),
+	controller_mode(false)
 {
 	setupUi(this);
 
@@ -129,7 +131,8 @@ void AddObjectDialog::modelSelected(QListWidgetItem* selected_item)
 	{
 		const std::string model = QtUtils::toStdString(this->listWidget->currentItem()->text());
 
-		this->listWidget->setCurrentItem(NULL);
+		if(!controller_mode)
+			this->listWidget->setCurrentItem(NULL);
 
 		const std::string model_path = base_dir_path + "/data/resources/models/" + model + ".obj";
 
@@ -137,6 +140,60 @@ void AddObjectDialog::modelSelected(QListWidgetItem* selected_item)
 
 		loadModelIntoPreview(model_path);
 	}
+}
+
+
+void AddObjectDialog::enableControllerModelLibraryOnlyMode()
+{
+	controller_mode = true;
+
+	this->tabWidget->setCurrentIndex(0); // Model library
+	if(this->tabWidget->tabBar())
+		this->tabWidget->tabBar()->hide();
+
+	this->listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+	if(this->listWidget->count() > 0)
+	{
+		this->listWidget->setCurrentRow(0);
+		QListWidgetItem* item = this->listWidget->currentItem();
+		if(item)
+			modelSelected(item);
+	}
+
+	this->listWidget->setFocus();
+}
+
+
+void AddObjectDialog::controllerMoveSelection(int delta_rows)
+{
+	if(!controller_mode || this->listWidget->count() == 0)
+		return;
+
+	int row = this->listWidget->currentRow();
+	if(row < 0)
+		row = 0;
+
+	row = myClamp(row + delta_rows, 0, this->listWidget->count() - 1);
+	this->listWidget->setCurrentRow(row);
+
+	QListWidgetItem* item = this->listWidget->currentItem();
+	if(item)
+		modelSelected(item);
+}
+
+
+void AddObjectDialog::controllerCreateSelectedModel()
+{
+	if(!controller_mode)
+		return;
+
+	QListWidgetItem* item = this->listWidget->currentItem();
+	if(!item)
+		return;
+
+	const std::string model = QtUtils::toStdString(item->text());
+	this->result_path = base_dir_path + "/data/resources/models/" + model + ".obj";
+	accept();
 }
 
 

@@ -15058,7 +15058,12 @@ void GUIClient::gamepadButtonUpChanged(bool pressed)
 		return;
 
 	last_cursor_movement_was_from_mouse = false;
-	if(gamepad_l1_down)
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, this->cam_controller.getRightVec().toVec4fVector(), -Maths::pi<float>() / 32.f);
+	}
+	else if(gamepad_l1_down)
 		nudgeSelectedObject(Vec3d(0, 0, 1));
 	else
 		nudgeSelectedObject(Vec3d(1, 0, 0));
@@ -15071,7 +15076,12 @@ void GUIClient::gamepadButtonDownChanged(bool pressed)
 		return;
 
 	last_cursor_movement_was_from_mouse = false;
-	if(gamepad_l1_down)
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, this->cam_controller.getRightVec().toVec4fVector(), Maths::pi<float>() / 32.f);
+	}
+	else if(gamepad_l1_down)
 		nudgeSelectedObject(Vec3d(0, 0, -1));
 	else
 		nudgeSelectedObject(Vec3d(-1, 0, 0));
@@ -15084,7 +15094,13 @@ void GUIClient::gamepadButtonLeftChanged(bool pressed)
 		return;
 
 	last_cursor_movement_was_from_mouse = false;
-	nudgeSelectedObject(Vec3d(0, -1, 0));
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, Vec4f(0,0,1,0), -Maths::pi<float>() / 32.f);
+	}
+	else
+		nudgeSelectedObject(Vec3d(0, 1, 0));
 }
 
 
@@ -15094,7 +15110,13 @@ void GUIClient::gamepadButtonRightChanged(bool pressed)
 		return;
 
 	last_cursor_movement_was_from_mouse = false;
-	nudgeSelectedObject(Vec3d(0, 1, 0));
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, Vec4f(0,0,1,0), Maths::pi<float>() / 32.f);
+	}
+	else
+		nudgeSelectedObject(Vec3d(0, -1, 0));
 }
 
 
