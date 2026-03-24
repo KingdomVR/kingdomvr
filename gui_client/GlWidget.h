@@ -102,6 +102,10 @@ signals:;
 	void gamepadButtonYChangedSignal(bool pressed);
 	void gamepadButtonL1ChangedSignal(bool pressed);
 	void gamepadButtonR1ChangedSignal(bool pressed);
+	void gamepadButtonUpChangedSignal(bool pressed);
+	void gamepadButtonDownChangedSignal(bool pressed);
+	void gamepadButtonLeftChangedSignal(bool pressed);
+	void gamepadButtonRightChangedSignal(bool pressed);
 
 private slots:
 	void gamepadInputSlot();

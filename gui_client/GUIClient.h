@@ -244,11 +244,16 @@ public:
 	void gamepadButtonYChanged(bool pressed);
 	void gamepadButtonL1Changed(bool pressed);
 	void gamepadButtonR1Changed(bool pressed);
+	void gamepadButtonUpChanged(bool pressed);
+	void gamepadButtonDownChanged(bool pressed);
+	void gamepadButtonLeftChanged(bool pressed);
+	void gamepadButtonRightChanged(bool pressed);
 	void viewportResized(int w, int h);
 	void updateGroundPlane();
 	void sendLightmapNeededFlagsSlot();
 	void useActionTriggered(bool use_mouse_cursor); // if use_mouse_cursor is false, use crosshair as cursor instead.
 	void selectObjectUnderCrosshair();
+	void nudgeSelectedObject(const Vec3d& delta);
 	void loginButtonClicked();
 	void signupButtonClicked();
 	void loggedInButtonClicked();

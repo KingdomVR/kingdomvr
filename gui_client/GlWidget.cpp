@@ -184,6 +184,10 @@ void GlWidget::initGamepadsSlot()
 		connect(gamepad, SIGNAL(buttonYChanged(bool)), this, SIGNAL(gamepadButtonYChangedSignal(bool)));
 		connect(gamepad, SIGNAL(buttonL1Changed(bool)), this, SIGNAL(gamepadButtonL1ChangedSignal(bool)));
 		connect(gamepad, SIGNAL(buttonR1Changed(bool)), this, SIGNAL(gamepadButtonR1ChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonUpChanged(bool)), this, SIGNAL(gamepadButtonUpChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonDownChanged(bool)), this, SIGNAL(gamepadButtonDownChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonLeftChanged(bool)), this, SIGNAL(gamepadButtonLeftChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonRightChanged(bool)), this, SIGNAL(gamepadButtonRightChangedSignal(bool)));
 	}
 #endif
 }

@@ -362,6 +362,7 @@ VehiclePhysicsUpdateEvents BikePhysics::update(PhysicsWorld& physics_world, cons
 
 	float forward = 0.0f, right = 0.0f, up_input = 0.f, brake = 0.0f, handbrake = 0.f;
 	// Determine acceleration and brake
+	forward = -physics_input.axis_left_y * 0.5f;
 	if (physics_input.W_down || physics_input.up_down)
 		forward = 0.5f;
 	else if(physics_input.S_down || physics_input.down_down)
@@ -407,10 +408,14 @@ VehiclePhysicsUpdateEvents BikePhysics::update(PhysicsWorld& physics_world, cons
 	const float max_steering_input = myClamp(20.f / speed, 0.f, 1.f);
 	const float steering_speed = 2.f;
 
-	if(physics_input.A_down && !physics_input.D_down)
+	const bool key_steer_left = physics_input.A_down && !physics_input.D_down;
+	const bool key_steer_right = physics_input.D_down && !physics_input.A_down;
+	if(key_steer_left)
 		cur_steering_right = myClamp(cur_steering_right - steering_speed * dtime, -max_steering_input, max_steering_input);
-	else if(physics_input.D_down && !physics_input.A_down)
+	else if(key_steer_right)
 		cur_steering_right = myClamp(cur_steering_right + steering_speed * dtime, -max_steering_input, max_steering_input);
+	else if(std::fabs(physics_input.axis_left_x) > 0.0f)
+		cur_steering_right = myClamp(physics_input.axis_left_x, -max_steering_input, max_steering_input);
 	else
 	{
 		if(cur_steering_right > 0)

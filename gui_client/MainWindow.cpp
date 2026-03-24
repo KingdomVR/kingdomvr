@@ -362,6 +362,10 @@ void MainWindow::initialiseUI()
 	connect(ui->glWidget, SIGNAL(gamepadButtonYChangedSignal(bool)), this, SLOT(gamepadButtonYChanged(bool)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonL1ChangedSignal(bool)), this, SLOT(gamepadButtonL1Changed(bool)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonR1ChangedSignal(bool)), this, SLOT(gamepadButtonR1Changed(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonUpChangedSignal(bool)), this, SLOT(gamepadButtonUpChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonDownChangedSignal(bool)), this, SLOT(gamepadButtonDownChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonLeftChangedSignal(bool)), this, SLOT(gamepadButtonLeftChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadButtonRightChangedSignal(bool)), this, SLOT(gamepadButtonRightChanged(bool)));
 	connect(ui->glWidget, SIGNAL(viewportResizedSignal(int, int)), this, SLOT(glWidgetViewportResized(int, int)));
 	connect(ui->glWidget, SIGNAL(cutShortcutActivated()), this, SLOT(glWidgetCutShortcutTriggered()));
 	connect(ui->glWidget, SIGNAL(copyShortcutActivated()), this, SLOT(glWidgetCopyShortcutTriggered()));
@@ -4133,6 +4137,30 @@ void MainWindow::gamepadButtonL1Changed(bool pressed)
 void MainWindow::gamepadButtonR1Changed(bool pressed)
 {
 	gui_client.gamepadButtonR1Changed(pressed);
+}
+
+
+void MainWindow::gamepadButtonUpChanged(bool pressed)
+{
+	gui_client.gamepadButtonUpChanged(pressed);
+}
+
+
+void MainWindow::gamepadButtonDownChanged(bool pressed)
+{
+	gui_client.gamepadButtonDownChanged(pressed);
+}
+
+
+void MainWindow::gamepadButtonLeftChanged(bool pressed)
+{
+	gui_client.gamepadButtonLeftChanged(pressed);
+}
+
+
+void MainWindow::gamepadButtonRightChanged(bool pressed)
+{
+	gui_client.gamepadButtonRightChanged(pressed);
 }
 
 

@@ -15036,6 +15036,52 @@ void GUIClient::gamepadButtonR1Changed(bool pressed)
 }
 
 
+void GUIClient::gamepadButtonUpChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	if(gamepad_l1_down)
+		nudgeSelectedObject(Vec3d(0, 0, 1));
+	else
+		nudgeSelectedObject(Vec3d(0, 1, 0));
+}
+
+
+void GUIClient::gamepadButtonDownChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	if(gamepad_l1_down)
+		nudgeSelectedObject(Vec3d(0, 0, -1));
+	else
+		nudgeSelectedObject(Vec3d(0, -1, 0));
+}
+
+
+void GUIClient::gamepadButtonLeftChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	nudgeSelectedObject(Vec3d(-1, 0, 0));
+}
+
+
+void GUIClient::gamepadButtonRightChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	nudgeSelectedObject(Vec3d(1, 0, 0));
+}
+
+
 void GUIClient::selectObjectUnderCrosshair()
 {
 	if(opengl_engine.isNull())
@@ -15046,6 +15092,17 @@ void GUIClient::selectObjectUnderCrosshair()
 	mouse_event.gl_coords = Vec2f(0.f);
 
 	doObjectSelectionTraceForMouseEvent(mouse_event);
+}
+
+
+void GUIClient::nudgeSelectedObject(const Vec3d& delta)
+{
+	if(this->selected_ob.isNull())
+		return;
+
+	const double step = ui_interface->snapToGridCheckBoxChecked() ? ui_interface->gridSpacing() : 0.2;
+	const Vec4f desired_new_ob_pos = this->selected_ob->pos.toVec4fPoint() + toVec4fPoint(delta * step);
+	tryToMoveObject(this->selected_ob, desired_new_ob_pos);
 }
 
 
