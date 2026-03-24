@@ -407,6 +407,8 @@ VehiclePhysicsUpdateEvents BikePhysics::update(PhysicsWorld& physics_world, cons
 	*/
 	const float max_steering_input = myClamp(20.f / speed, 0.f, 1.f);
 	const float steering_speed = 2.f;
+	const float controller_steering_deadzone = 0.08f;
+	const float controller_steering_scale = 0.55f;
 
 	const bool key_steer_left = physics_input.A_down && !physics_input.D_down;
 	const bool key_steer_right = physics_input.D_down && !physics_input.A_down;
@@ -414,8 +416,8 @@ VehiclePhysicsUpdateEvents BikePhysics::update(PhysicsWorld& physics_world, cons
 		cur_steering_right = myClamp(cur_steering_right - steering_speed * dtime, -max_steering_input, max_steering_input);
 	else if(key_steer_right)
 		cur_steering_right = myClamp(cur_steering_right + steering_speed * dtime, -max_steering_input, max_steering_input);
-	else if(std::fabs(physics_input.axis_left_x) > 0.0f)
-		cur_steering_right = myClamp(physics_input.axis_left_x, -max_steering_input, max_steering_input);
+	else if(std::fabs(physics_input.axis_left_x) > controller_steering_deadzone)
+		cur_steering_right = myClamp(physics_input.axis_left_x * controller_steering_scale, -max_steering_input, max_steering_input);
 	else
 	{
 		if(cur_steering_right > 0)
