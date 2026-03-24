@@ -110,6 +110,7 @@ VehiclePhysicsUpdateEvents BoatPhysics::update(PhysicsWorld& physics_world, cons
 	float forward = 0.0f, right = 0.0f;
 
 	// Determine acceleration
+	forward = -physics_input.axis_left_y;
 	if (physics_input.W_down || physics_input.up_down)
 		forward = 1.0f;
 	else if(physics_input.S_down || physics_input.down_down)
@@ -119,7 +120,7 @@ VehiclePhysicsUpdateEvents BoatPhysics::update(PhysicsWorld& physics_world, cons
 		forward *= 2.f;
 
 	if(forward == 0.0f)
-		forward = myMax(physics_input.left_trigger, physics_input.right_trigger) * 2.f;
+		forward = (physics_input.right_trigger - physics_input.left_trigger) * 2.f;
 	if(forward < 0.0f)
 		forward *= 0.2f; // Use less power for reversing.
 

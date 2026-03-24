@@ -228,6 +228,7 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	B_down = false;
 	gamepad_l1_down = false;
 	gamepad_r1_down = false;
+	gamepad_space_was_down = false;
 
 	texture_server = new TextureServer(/*use_canonical_path_keys=*/false); // Just used for caching textures for GUIClient::setMaterialFlagsForObject()
 
@@ -5420,19 +5421,30 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 		// Since we don't have the shift key available, move a bit faster in flymode
 		const float gamepad_move_speed_factor = player_physics.flyModeEnabled() ? 4.f : 2.f;
 		const float gamepad_rotate_speed = 400;
+		const float gamepad_l2 = ui_interface->gamepadButtonL2();
+		const float gamepad_r2 = ui_interface->gamepadButtonR2();
+		const bool gamepad_space_down = gamepad_r2 > 0.2f;
 
 		// Move vertically up or down in flymode.
-		if(ui_interface->gamepadButtonL2() != 0) // Left trigger
+		if(player_physics.flyModeEnabled() && gamepad_l2 != 0) // Left trigger
 		{	
-			player_physics.processMoveUp(gamepad_move_speed_factor * -pow(ui_interface->gamepadButtonL2(), 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveUp(gamepad_move_speed_factor * -pow(gamepad_l2, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
-		input_out.left_trigger = ui_interface->gamepadButtonL2();
+		input_out.left_trigger = gamepad_l2;
 
-		if(ui_interface->gamepadButtonR2() != 0) // Right trigger
+		if(player_physics.flyModeEnabled() && gamepad_r2 != 0) // Right trigger
 		{	
-			player_physics.processMoveUp(gamepad_move_speed_factor * pow(ui_interface->gamepadButtonR2(), 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveUp(gamepad_move_speed_factor * pow(gamepad_r2, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
-		input_out.right_trigger = ui_interface->gamepadButtonR2();
+		input_out.right_trigger = gamepad_r2;
+
+		if(gamepad_space_down && !gamepad_space_was_down && !player_physics.flyModeEnabled() && vehicle_controller_inside.isNull() &&
+			!(cam_controller.current_cam_mode == CameraController::CameraMode_FreeCamera))
+		{
+			player_physics.processJump(this->cam_controller, /*cur time=*/Clock::getTimeSinceInit());
+		}
+		gamepad_space_was_down = gamepad_space_down;
+		input_out.space_down = input_out.space_down || gamepad_space_down; // Space equivalent for brake/jump behavior.
 
 		const float axis_left_x = ui_interface->gamepadAxisLeftX();
 		const float axis_left_y = ui_interface->gamepadAxisLeftY();
@@ -5470,6 +5482,10 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 		}
 
 		hud_ui.setCrosshairDotVisible(!last_cursor_movement_was_from_mouse);
+	}
+	else
+	{
+		gamepad_space_was_down = false;
 	}
 
 	if(cam_controller.current_cam_mode == CameraController::CameraMode_FreeCamera)
@@ -15045,7 +15061,7 @@ void GUIClient::gamepadButtonUpChanged(bool pressed)
 	if(gamepad_l1_down)
 		nudgeSelectedObject(Vec3d(0, 0, 1));
 	else
-		nudgeSelectedObject(Vec3d(0, 1, 0));
+		nudgeSelectedObject(Vec3d(1, 0, 0));
 }
 
 
@@ -15058,7 +15074,7 @@ void GUIClient::gamepadButtonDownChanged(bool pressed)
 	if(gamepad_l1_down)
 		nudgeSelectedObject(Vec3d(0, 0, -1));
 	else
-		nudgeSelectedObject(Vec3d(0, -1, 0));
+		nudgeSelectedObject(Vec3d(-1, 0, 0));
 }
 
 
@@ -15068,7 +15084,7 @@ void GUIClient::gamepadButtonLeftChanged(bool pressed)
 		return;
 
 	last_cursor_movement_was_from_mouse = false;
-	nudgeSelectedObject(Vec3d(-1, 0, 0));
+	nudgeSelectedObject(Vec3d(0, -1, 0));
 }
 
 
@@ -15078,7 +15094,7 @@ void GUIClient::gamepadButtonRightChanged(bool pressed)
 		return;
 
 	last_cursor_movement_was_from_mouse = false;
-	nudgeSelectedObject(Vec3d(1, 0, 0));
+	nudgeSelectedObject(Vec3d(0, 1, 0));
 }
 
 
@@ -16594,6 +16610,7 @@ void GUIClient::focusOut()
 	B_down = false;
 	gamepad_l1_down = false;
 	gamepad_r1_down = false;
+	gamepad_space_was_down = false;
 }
 
 

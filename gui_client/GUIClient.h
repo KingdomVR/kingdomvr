@@ -838,6 +838,7 @@ public:
 
 	bool SHIFT_down, CTRL_down, A_down, W_down, S_down, D_down, space_down, C_down, left_down, right_down, up_down, down_down, B_down;
 	bool gamepad_l1_down, gamepad_r1_down;
+	bool gamepad_space_was_down;
 
 	js::Vector<Reference<ThreadMessage>, 16> temp_msgs;
 
