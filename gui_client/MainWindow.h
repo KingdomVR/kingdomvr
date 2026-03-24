@@ -131,7 +131,10 @@ private slots:;
 	void gamepadButtonDownChanged(bool pressed);
 	void gamepadButtonLeftChanged(bool pressed);
 	void gamepadButtonRightChanged(bool pressed);
+	void gamepadAxisLeftXChanged(double value);
 	void gamepadAxisLeftYChanged(double value);
+	void gamepadAxisRightXChanged(double value);
+	void gamepadAxisRightYChanged(double value);
 	void glWidgetViewportResized(int w, int h);
 	void onIndigoViewDockWidgetVisibilityChanged(bool v);
 	void glWidgetCutShortcutTriggered();
@@ -389,6 +392,8 @@ public:
 	bool gamepad_r1_down;
 	bool gamepad_list_nav_up_latched;
 	bool gamepad_list_nav_down_latched;
+	bool gamepad_list_nav_left_latched;
+	bool gamepad_list_nav_right_latched;
 
 	MiniDmpSender* minidump_sender;
 };

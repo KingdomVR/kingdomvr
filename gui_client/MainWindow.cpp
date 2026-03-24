@@ -143,6 +143,8 @@ MainWindow::MainWindow(const std::string& base_dir_path_, const std::string& app
 	gamepad_r1_down(false),
 	gamepad_list_nav_up_latched(false),
 	gamepad_list_nav_down_latched(false),
+	gamepad_list_nav_left_latched(false),
+	gamepad_list_nav_right_latched(false),
 	ui(NULL),
 	minidump_sender(NULL)
 	//game_controller(NULL)
@@ -370,7 +372,10 @@ void MainWindow::initialiseUI()
 	connect(ui->glWidget, SIGNAL(gamepadButtonDownChangedSignal(bool)), this, SLOT(gamepadButtonDownChanged(bool)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonLeftChangedSignal(bool)), this, SLOT(gamepadButtonLeftChanged(bool)));
 	connect(ui->glWidget, SIGNAL(gamepadButtonRightChangedSignal(bool)), this, SLOT(gamepadButtonRightChanged(bool)));
+	connect(ui->glWidget, SIGNAL(gamepadAxisLeftXChangedSignal(double)), this, SLOT(gamepadAxisLeftXChanged(double)));
 	connect(ui->glWidget, SIGNAL(gamepadAxisLeftYChangedSignal(double)), this, SLOT(gamepadAxisLeftYChanged(double)));
+	connect(ui->glWidget, SIGNAL(gamepadAxisRightXChangedSignal(double)), this, SLOT(gamepadAxisRightXChanged(double)));
+	connect(ui->glWidget, SIGNAL(gamepadAxisRightYChangedSignal(double)), this, SLOT(gamepadAxisRightYChanged(double)));
 	connect(ui->glWidget, SIGNAL(viewportResizedSignal(int, int)), this, SLOT(glWidgetViewportResized(int, int)));
 	connect(ui->glWidget, SIGNAL(cutShortcutActivated()), this, SLOT(glWidgetCutShortcutTriggered()));
 	connect(ui->glWidget, SIGNAL(copyShortcutActivated()), this, SLOT(glWidgetCopyShortcutTriggered()));
@@ -1574,6 +1579,8 @@ void MainWindow::openAddObjectDialog(bool controller_mode)
 	active_add_object_dialog = &dialog;
 	gamepad_list_nav_up_latched = false;
 	gamepad_list_nav_down_latched = false;
+	gamepad_list_nav_left_latched = false;
+	gamepad_list_nav_right_latched = false;
 	const int res = dialog.exec();
 	active_add_object_dialog = NULL;
 	ui->glWidget->makeCurrent(); // Change back from the dialog GL context to the mainwindow GL context.
@@ -4141,8 +4148,11 @@ void MainWindow::gamepadButtonAChanged(bool pressed)
 
 	if(gamepad_r1_down)
 	{
-		openAddObjectDialog(/*controller_mode=*/true);
-		return;
+		if(!gui_client.selectedObjectIsVoxelOb())
+		{
+			openAddObjectDialog(/*controller_mode=*/true);
+			return;
+		}
 	}
 
 	gui_client.gamepadButtonAChanged(pressed);
@@ -4151,18 +4161,24 @@ void MainWindow::gamepadButtonAChanged(bool pressed)
 
 void MainWindow::gamepadButtonBChanged(bool pressed)
 {
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonBChanged(pressed);
 }
 
 
 void MainWindow::gamepadButtonYChanged(bool pressed)
 {
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonYChanged(pressed);
 }
 
 
 void MainWindow::gamepadButtonL1Changed(bool pressed)
 {
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonL1Changed(pressed);
 }
 
@@ -4170,31 +4186,77 @@ void MainWindow::gamepadButtonL1Changed(bool pressed)
 void MainWindow::gamepadButtonR1Changed(bool pressed)
 {
 	gamepad_r1_down = pressed;
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonR1Changed(pressed);
 }
 
 
 void MainWindow::gamepadButtonUpChanged(bool pressed)
 {
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonUpChanged(pressed);
 }
 
 
 void MainWindow::gamepadButtonDownChanged(bool pressed)
 {
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonDownChanged(pressed);
 }
 
 
 void MainWindow::gamepadButtonLeftChanged(bool pressed)
 {
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonLeftChanged(pressed);
 }
 
 
 void MainWindow::gamepadButtonRightChanged(bool pressed)
 {
+	if(active_add_object_dialog)
+		return;
 	gui_client.gamepadButtonRightChanged(pressed);
+}
+
+
+void MainWindow::gamepadAxisLeftXChanged(double value)
+{
+	if(!active_add_object_dialog)
+		return;
+
+	const double engage = 0.6;
+	const double release = 0.3;
+
+	if(value <= -engage)
+	{
+		if(!gamepad_list_nav_left_latched)
+		{
+			active_add_object_dialog->controllerMoveSelectionGrid(-1, 0);
+			gamepad_list_nav_left_latched = true;
+		}
+	}
+	else if(value > -release)
+	{
+		gamepad_list_nav_left_latched = false;
+	}
+
+	if(value >= engage)
+	{
+		if(!gamepad_list_nav_right_latched)
+		{
+			active_add_object_dialog->controllerMoveSelectionGrid(1, 0);
+			gamepad_list_nav_right_latched = true;
+		}
+	}
+	else if(value < release)
+	{
+		gamepad_list_nav_right_latched = false;
+	}
 }
 
 
@@ -4210,7 +4272,7 @@ void MainWindow::gamepadAxisLeftYChanged(double value)
 	{
 		if(!gamepad_list_nav_up_latched)
 		{
-			active_add_object_dialog->controllerMoveSelection(-1);
+			active_add_object_dialog->controllerMoveSelectionGrid(0, -1);
 			gamepad_list_nav_up_latched = true;
 		}
 	}
@@ -4223,7 +4285,7 @@ void MainWindow::gamepadAxisLeftYChanged(double value)
 	{
 		if(!gamepad_list_nav_down_latched)
 		{
-			active_add_object_dialog->controllerMoveSelection(1);
+			active_add_object_dialog->controllerMoveSelectionGrid(0, 1);
 			gamepad_list_nav_down_latched = true;
 		}
 	}
@@ -4231,6 +4293,18 @@ void MainWindow::gamepadAxisLeftYChanged(double value)
 	{
 		gamepad_list_nav_down_latched = false;
 	}
+}
+
+
+void MainWindow::gamepadAxisRightXChanged(double value)
+{
+	// Intentionally ignored: right stick should not navigate the add-object grid.
+}
+
+
+void MainWindow::gamepadAxisRightYChanged(double value)
+{
+	// Intentionally ignored: right stick should not navigate the add-object grid.
 }
 
 
@@ -4352,36 +4426,50 @@ float MainWindow::gamepadAxisRightY()
 
 bool MainWindow::gamepadAttached()
 {
+	if(active_add_object_dialog)
+		return false;
 	return ui->glWidget->gamepad != nullptr;
 }
 
 float MainWindow::gamepadButtonL2()
 {
+	if(active_add_object_dialog)
+		return 0.0f;
 	return ui->glWidget->gamepad ? (float)ui->glWidget->gamepad->buttonL2() : 0.0f;
 }
 
 float MainWindow::gamepadButtonR2()
 {
+	if(active_add_object_dialog)
+		return 0.0f;
 	return ui->glWidget->gamepad ? (float)ui->glWidget->gamepad->buttonR2() : 0.0f;
 }
 
 float MainWindow::gamepadAxisLeftX()
 {
+	if(active_add_object_dialog)
+		return 0.0f;
 	return ui->glWidget->gamepad ? (float)ui->glWidget->gamepad->axisLeftX() : 0.0f;
 }
 
 float MainWindow::gamepadAxisLeftY()
 {
+	if(active_add_object_dialog)
+		return 0.0f;
 	return ui->glWidget->gamepad ? (float)ui->glWidget->gamepad->axisLeftY() : 0.0f;
 }
 
 float MainWindow::gamepadAxisRightX()
 {
+	if(active_add_object_dialog)
+		return 0.0f;
 	return ui->glWidget->gamepad ? (float)ui->glWidget->gamepad->axisRightX() : 0.0f;
 }
 
 float MainWindow::gamepadAxisRightY()
 {
+	if(active_add_object_dialog)
+		return 0.0f;
 	return ui->glWidget->gamepad ? (float)ui->glWidget->gamepad->axisRightY() : 0.0f;
 }
 #endif

@@ -36,7 +36,7 @@ public:
 		TextureServer& texture_server, QWidget* parent_widget);
 
 	void enableControllerModelLibraryOnlyMode();
-	void controllerMoveSelection(int delta_rows);
+	void controllerMoveSelectionGrid(int dx, int dy);
 	void controllerCreateSelectedModel();
 
 private slots:;

@@ -161,7 +161,7 @@ void AddObjectDialog::enableControllerModelLibraryOnlyMode()
 }
 
 
-void AddObjectDialog::controllerMoveSelection(int delta_rows)
+void AddObjectDialog::controllerMoveSelectionGrid(int dx, int dy)
 {
 	if(!controller_mode || this->listWidget->count() == 0)
 		return;
@@ -170,12 +170,13 @@ void AddObjectDialog::controllerMoveSelection(int delta_rows)
 	if(row < 0)
 		row = 0;
 
-	row = myClamp(row + delta_rows, 0, this->listWidget->count() - 1);
-	this->listWidget->setCurrentRow(row);
+	const int item_w = myMax(1, this->listWidget->gridSize().width());
+	const int view_w = myMax(1, this->listWidget->viewport()->width());
+	const int cols = myMax(1, view_w / item_w);
 
-	QListWidgetItem* item = this->listWidget->currentItem();
-	if(item)
-		modelSelected(item);
+	row = myClamp(row + dx + dy * cols, 0, this->listWidget->count() - 1);
+	this->listWidget->setCurrentRow(row);
+	this->listWidget->scrollToItem(this->listWidget->currentItem());
 }
 
 

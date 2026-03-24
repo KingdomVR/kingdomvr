@@ -14976,8 +14976,25 @@ void GUIClient::gamepadButtonXChanged(bool pressed)
 
 void GUIClient::gamepadButtonAChanged(bool pressed)
 {
-	if(pressed)
-		useActionTriggered(/*use_mouse_cursor=*/false);
+	if(!pressed)
+		return;
+
+	if(selectedObjectIsVoxelOb())
+	{
+		if(gamepad_r1_down)
+		{
+			controllerEditSelectedVoxelAtCrosshair(/*add_voxel=*/true);
+			return;
+		}
+
+		if(gamepad_l1_down)
+		{
+			controllerEditSelectedVoxelAtCrosshair(/*add_voxel=*/false);
+			return;
+		}
+	}
+
+	useActionTriggered(/*use_mouse_cursor=*/false);
 }
 
 
@@ -15142,6 +15159,94 @@ void GUIClient::nudgeSelectedObject(const Vec3d& delta)
 	const Vec3d delta_scaled = delta * step;
 	const Vec4f desired_new_ob_pos = this->selected_ob->pos.toVec4fPoint() + Vec4f((float)delta_scaled.x, (float)delta_scaled.y, (float)delta_scaled.z, 0.f);
 	tryToMoveObject(this->selected_ob, desired_new_ob_pos);
+}
+
+
+void GUIClient::controllerEditSelectedVoxelAtCrosshair(bool add_voxel)
+{
+	if(!selectedObjectIsVoxelOb() || selected_ob.isNull())
+		return;
+
+	const bool have_edit_permissions = objectModificationAllowedWithMsg(*selected_ob, "edit");
+	if(!have_edit_permissions)
+		return;
+
+	const float gl_w = (float)opengl_engine->getMainViewPortWidth();
+	const float gl_h = (float)opengl_engine->getMainViewPortHeight();
+	const int cx = (int)(gl_w * 0.5f);
+	const int cy = (int)(gl_h * 0.5f);
+
+	const Vec4f origin = this->cam_controller.getPosition().toVec4fPoint();
+	const Vec4f dir = getDirForPixelTrace(cx, cy);
+
+	RayTraceResult results;
+	this->physics_world->traceRay(origin, dir, /*max_t=*/1.0e5f, /*ignore body id=*/JPH::BodyID(), results);
+	if(!results.hit_object)
+		return;
+
+	selected_ob->decompressVoxels();
+
+	const float current_voxel_w = 1;
+	const Matrix4f world_to_ob = worldToObMatrix(*selected_ob);
+
+	bool voxels_changed = false;
+
+	if(add_voxel)
+	{
+		const Vec4f point_off_surface = origin + dir * results.hit_t + results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
+
+		const float dist_from_aabb = selected_ob->opengl_engine_ob.nonNull() ? selected_ob->opengl_engine_ob->aabb_ws.distanceToPoint(point_off_surface) : 0.f;
+		if(dist_from_aabb >= 2.f)
+		{
+			showErrorNotification("Can't create voxel that far away from rest of voxels.");
+			return;
+		}
+
+		undo_buffer.startWorldObjectEdit(*selected_ob);
+
+		const Vec4f point_os = world_to_ob * point_off_surface;
+		const Vec4f point_os_voxel_space = point_os / current_voxel_w;
+		Vec3<int> voxel_indices((int)floor(point_os_voxel_space[0]), (int)floor(point_os_voxel_space[1]), (int)floor(point_os_voxel_space[2]));
+
+		selected_ob->getDecompressedVoxels().push_back(Voxel());
+		selected_ob->getDecompressedVoxels().back().pos = voxel_indices;
+		selected_ob->getDecompressedVoxels().back().mat_index = ui_interface->getSelectedMatIndex();
+
+		voxels_changed = true;
+
+		undo_buffer.finishWorldObjectEdit(*selected_ob);
+	}
+	else
+	{
+		if(selected_ob->getDecompressedVoxels().size() <= 1)
+		{
+			showErrorNotification("Can't delete last voxel in voxel group.  Delete entire voxel object ('delete' key) to remove it.");
+			return;
+		}
+
+		undo_buffer.startWorldObjectEdit(*selected_ob);
+
+		const Vec4f point_under_surface = origin + dir * results.hit_t - results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
+		const Vec4f point_os = world_to_ob * point_under_surface;
+		const Vec4f point_os_voxel_space = point_os / current_voxel_w;
+		Vec3<int> voxel_indices((int)floor(point_os_voxel_space[0]), (int)floor(point_os_voxel_space[1]), (int)floor(point_os_voxel_space[2]));
+
+		for(size_t z=0; z<selected_ob->getDecompressedVoxels().size(); ++z)
+		{
+			if(selected_ob->getDecompressedVoxels()[z].pos == voxel_indices)
+			{
+				selected_ob->getDecompressedVoxels().erase(selected_ob->getDecompressedVoxels().begin() + z);
+				break;
+			}
+		}
+
+		voxels_changed = true;
+
+		undo_buffer.finishWorldObjectEdit(*selected_ob);
+	}
+
+	if(voxels_changed)
+		updateObjectModelForChangedDecompressedVoxels(selected_ob);
 }
 
 

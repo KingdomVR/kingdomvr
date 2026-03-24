@@ -254,6 +254,7 @@ public:
 	void useActionTriggered(bool use_mouse_cursor); // if use_mouse_cursor is false, use crosshair as cursor instead.
 	void selectObjectUnderCrosshair();
 	void nudgeSelectedObject(const Vec3d& delta);
+	void controllerEditSelectedVoxelAtCrosshair(bool add_voxel);
 	void loginButtonClicked();
 	void signupButtonClicked();
 	void loggedInButtonClicked();
