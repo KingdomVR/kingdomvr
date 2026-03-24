@@ -155,9 +155,6 @@ void AddObjectDialog::enableControllerModelLibraryOnlyMode()
 	if(this->listWidget->count() > 0)
 	{
 		this->listWidget->setCurrentRow(0);
-		QListWidgetItem* item = this->listWidget->currentItem();
-		if(item)
-			modelSelected(item);
 	}
 
 	this->listWidget->setFocus();
@@ -187,13 +184,16 @@ void AddObjectDialog::controllerCreateSelectedModel()
 	if(!controller_mode)
 		return;
 
+	if(!objectPreviewGLWidget->opengl_engine || !objectPreviewGLWidget->opengl_engine->initSucceeded())
+		return; // Wait until preview widget has fully initialized, same as normal user flow.
+
 	QListWidgetItem* item = this->listWidget->currentItem();
 	if(!item)
 		return;
 
-	const std::string model = QtUtils::toStdString(item->text());
-	this->result_path = base_dir_path + "/data/resources/models/" + model + ".obj";
-	accept();
+	modelSelected(item); // Ensure loaded_materials/result_path are populated through normal codepath.
+	if(!loaded_materials.empty())
+		accept();
 }
 
 
