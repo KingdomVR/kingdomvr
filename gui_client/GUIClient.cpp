@@ -10118,7 +10118,7 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 			//const QPoint mouse_point = ui->glWidget->mapFromGlobal(QCursor::pos());
 			Vec2i trace_cursor_pos = mouse_cursor_state.cursor_pos;
 			if(gamepad_add_down || gamepad_delete_down)
-				trace_cursor_pos = Vec2i(this->getMainViewPortWidth() / 2, this->getMainViewPortHeight() / 2);
+				trace_cursor_pos = Vec2i(opengl_engine->getMainViewPortWidth() / 2, opengl_engine->getMainViewPortHeight() / 2);
 
 			const Vec4f origin = this->cam_controller.getPosition().toVec4fPoint();
 			const Vec4f dir = getDirForPixelTrace(trace_cursor_pos.x, trace_cursor_pos.y);
