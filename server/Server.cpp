@@ -262,7 +262,8 @@ static std::vector<ServerAvatarLibraryEntry> loadAvatarLibraryManifest(const std
 
 	const std::string contents = FileUtils::readEntireFileTextMode(manifest_path);
 	Parser parser(contents);
-	parser.parseLine(); // Skip version header line.
+	string_view ignored_line;
+	parser.parseLine(ignored_line); // Skip version header line.
 
 	while(!parser.eof())
 	{
