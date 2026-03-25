@@ -76,7 +76,10 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 	this->serverAvatarListWidget->setMovement(QListView::Static);
 
 	const bool use_server_avatar = settings->value("AvatarSettingsDialog/useServerAvatar", false).toBool();
-	SignalBlocker::setCurrentIndex(this->avatarTabWidget, use_server_avatar ? 0 : 1);
+	{
+		SignalBlocker b(this->avatarTabWidget);
+		this->avatarTabWidget->setCurrentIndex(use_server_avatar ? 0 : 1);
+	}
 
 	loadCustomAvatarPaths();
 	refreshServerAvatarList();
