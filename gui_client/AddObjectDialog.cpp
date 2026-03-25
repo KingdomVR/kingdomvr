@@ -28,6 +28,7 @@ Copyright Glare Technologies Limited 2022 -
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QErrorMessage>
 #include <QtWidgets/QListWidget>
+#include <QtWidgets/QTabBar>
 #include <QtCore/QSettings>
 #include <QtCore/QTimer>
 
@@ -40,7 +41,8 @@ AddObjectDialog::AddObjectDialog(const std::string& base_dir_path_, QSettings* s
 	dev_manager(dev_manager_),
 	loaded_mesh_is_image_cube(false),
 	main_task_manager(main_task_manager_),
-	high_priority_task_manager(high_priority_task_manager_)
+	high_priority_task_manager(high_priority_task_manager_),
+	controller_mode(false)
 {
 	setupUi(this);
 
@@ -57,6 +59,7 @@ AddObjectDialog::AddObjectDialog(const std::string& base_dir_path_, QSettings* s
 	//this->avatarSelectWidget->setFilename(settings->value("AddObjectDialogPath").toString());
 
 	connect(this->listWidget, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(modelSelected(QListWidgetItem*)));
+	connect(this->listWidget, SIGNAL(itemEntered(QListWidgetItem*)), this, SLOT(modelHovered(QListWidgetItem*)));
 	connect(this->listWidget, SIGNAL(itemDoubleClicked(QListWidgetItem*)), this, SLOT(modelDoubleClicked(QListWidgetItem*)));
 	connect(this->avatarSelectWidget, SIGNAL(filenameChanged(QString&)), this, SLOT(filenameChanged(QString&)));
 	connect(this->buttonBox, SIGNAL(accepted()), this, SLOT(accepted()));
@@ -75,6 +78,9 @@ AddObjectDialog::AddObjectDialog(const std::string& base_dir_path_, QSettings* s
 	listWidget->setIconSize(QSize(200, 200));
 	listWidget->setResizeMode(QListWidget::Adjust);
 	listWidget->setSelectionMode(QAbstractItemView::NoSelection);
+	listWidget->setMouseTracking(true);
+	if(listWidget->viewport())
+		listWidget->viewport()->setMouseTracking(true);
 	 
 	models.push_back("Quad");
 	models.push_back("Cube");
@@ -126,18 +132,105 @@ void AddObjectDialog::accepted()
 
 void AddObjectDialog::modelSelected(QListWidgetItem* selected_item)
 {
-	if(this->listWidget->currentItem())
-	{
-		const std::string model = QtUtils::toStdString(this->listWidget->currentItem()->text());
+	previewListItemModel(selected_item ? selected_item : this->listWidget->currentItem());
 
+	if(!controller_mode)
 		this->listWidget->setCurrentItem(NULL);
+}
 
-		const std::string model_path = base_dir_path + "/data/resources/models/" + model + ".obj";
 
-		this->result_path = model_path;
+void AddObjectDialog::modelHovered(QListWidgetItem* hovered_item)
+{
+	if(!hovered_item)
+		return;
 
-		loadModelIntoPreview(model_path);
+	previewListItemModel(hovered_item);
+}
+
+
+void AddObjectDialog::enableControllerModelLibraryOnlyMode()
+{
+	controller_mode = true;
+
+	this->tabWidget->setCurrentIndex(0); // Model library
+	if(this->tabWidget->tabBar())
+		this->tabWidget->tabBar()->hide();
+
+	this->listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+	if(this->listWidget->count() > 0)
+	{
+		int default_row = 0;
+		for(int i=0; i<this->listWidget->count(); ++i)
+		{
+			QListWidgetItem* item = this->listWidget->item(i);
+			if(item && item->text() == "Cube")
+			{
+				default_row = i;
+				break;
+			}
+		}
+
+		this->listWidget->setCurrentRow(default_row);
 	}
+
+	this->listWidget->setFocus();
+}
+
+
+void AddObjectDialog::controllerMoveSelectionGrid(int dx, int dy)
+{
+	if(!controller_mode || this->listWidget->count() == 0)
+		return;
+
+	int row = this->listWidget->currentRow();
+	if(row < 0)
+		row = 0;
+
+	const int item_w = myMax(1, this->listWidget->gridSize().width());
+	const int view_w = myMax(1, this->listWidget->viewport()->width());
+	const int cols = myMax(1, view_w / item_w);
+
+	row = myClamp(row + dx + dy * cols, 0, this->listWidget->count() - 1);
+	this->listWidget->setCurrentRow(row);
+	this->listWidget->scrollToItem(this->listWidget->currentItem());
+	previewListItemModel(this->listWidget->currentItem());
+}
+
+
+void AddObjectDialog::controllerCreateSelectedModel()
+{
+	if(!controller_mode)
+		return;
+
+	if(!objectPreviewGLWidget->opengl_engine || !objectPreviewGLWidget->opengl_engine->initSucceeded())
+		return; // Wait until preview widget has fully initialized, same as normal user flow.
+
+	QListWidgetItem* item = this->listWidget->currentItem();
+	if(!item)
+		return;
+
+	const std::string model = QtUtils::toStdString(item->text());
+	const std::string model_path = base_dir_path + "/data/resources/models/" + model + ".obj";
+	this->result_path = model_path;
+
+	// Force the selected model to be loaded right before accept, so createObject uses the same payload as keyboard/mouse flow.
+	if(result_path != model_path || loaded_materials.empty() || loaded_mesh.isNull())
+		loadModelIntoPreview(model_path);
+
+	if((result_path == model_path) && ensureCreationPayloadReady())
+		accept();
+}
+
+
+bool AddObjectDialog::ensureCreationPayloadReady()
+{
+	if(result_path.empty())
+		return false;
+
+	if(loaded_materials.empty() || (loaded_mesh.isNull() && loaded_voxels.empty()))
+		loadModelIntoPreview(result_path);
+
+	return !loaded_materials.empty() && (loaded_mesh.nonNull() || !loaded_voxels.empty());
 }
 
 
@@ -177,6 +270,9 @@ void AddObjectDialog::makeMeshForWidthAndHeight(const std::string& local_image_o
 
 void AddObjectDialog::loadModelIntoPreview(const std::string& local_path)
 {
+	if(!local_path.empty() && local_path == last_preview_model_path)
+		return;
+
 	this->objectPreviewGLWidget->makeCurrent();
 
 	this->loaded_mesh_is_image_cube = false;
@@ -242,19 +338,34 @@ void AddObjectDialog::loadModelIntoPreview(const std::string& local_path)
 		preview_gl_ob->ob_to_world_matrix = ::leftTranslateAffine3(Vec4f(0, 0, z_trans, 0), preview_gl_ob->ob_to_world_matrix);
 
 		objectPreviewGLWidget->opengl_engine->addObject(preview_gl_ob);
+		last_preview_model_path = local_path;
 	}
 	catch(Indigo::IndigoException& e)
 	{
 		this->loaded_materials.clear();
+		last_preview_model_path.clear();
 
 		QtUtils::showErrorMessageDialog(QtUtils::toQString(e.what()), this);
 	}
 	catch(glare::Exception& e)
 	{
 		this->loaded_materials.clear();
+		last_preview_model_path.clear();
 
 		QtUtils::showErrorMessageDialog(QtUtils::toQString(e.what()), this);
 	}
+}
+
+
+void AddObjectDialog::previewListItemModel(QListWidgetItem* item)
+{
+	if(!item)
+		return;
+
+	const std::string model = QtUtils::toStdString(item->text());
+	const std::string model_path = base_dir_path + "/data/resources/models/" + model + ".obj";
+	this->result_path = model_path;
+	loadModelIntoPreview(model_path);
 }
 
 

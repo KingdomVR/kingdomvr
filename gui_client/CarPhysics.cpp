@@ -303,7 +303,7 @@ VehiclePhysicsUpdateEvents CarPhysics::update(PhysicsWorld& physics_world, const
 	assert(this->car_body_id == world_object->physics_object->jolt_body_id);
 
 	// Determine acceleration and brake
-	float forward = 0.0f;
+	float forward = -physics_input.axis_left_y;
 	if(physics_input.W_down || physics_input.up_down)
 		forward = 1.0f;
 	else if(physics_input.S_down || physics_input.down_down)
@@ -313,10 +313,16 @@ VehiclePhysicsUpdateEvents CarPhysics::update(PhysicsWorld& physics_world, const
 	const float hand_brake = physics_input.B_down ? 1.f : 0.f;
 
 	const float STEERING_SPEED = 3.f;
-	if(physics_input.A_down && !physics_input.D_down)
+	const float CONTROLLER_STEERING_DEADZONE = 0.08f;
+	const float CONTROLLER_STEERING_SCALE = 0.55f;
+	const bool key_steer_left = physics_input.A_down && !physics_input.D_down;
+	const bool key_steer_right = physics_input.D_down && !physics_input.A_down;
+	if(key_steer_left)
 		cur_steering_right = myClamp(cur_steering_right - STEERING_SPEED * (float)dtime, -1.f, 1.f);
-	else if(physics_input.D_down && !physics_input.A_down)
+	else if(key_steer_right)
 		cur_steering_right = myClamp(cur_steering_right + STEERING_SPEED * (float)dtime, -1.f, 1.f);
+	else if(std::fabs(physics_input.axis_left_x) > CONTROLLER_STEERING_DEADZONE)
+		cur_steering_right = myClamp(physics_input.axis_left_x * CONTROLLER_STEERING_SCALE, -1.f, 1.f);
 	else
 	{
 		if(cur_steering_right > 0)

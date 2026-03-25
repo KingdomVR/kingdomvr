@@ -240,10 +240,21 @@ public:
 	void onMouseWheelEvent(MouseWheelEvent& e);
 	void gamepadButtonXChanged(bool pressed);
 	void gamepadButtonAChanged(bool pressed);
+	void gamepadButtonBChanged(bool pressed);
+	void gamepadButtonYChanged(bool pressed);
+	void gamepadButtonL1Changed(bool pressed);
+	void gamepadButtonR1Changed(bool pressed);
+	void gamepadButtonUpChanged(bool pressed);
+	void gamepadButtonDownChanged(bool pressed);
+	void gamepadButtonLeftChanged(bool pressed);
+	void gamepadButtonRightChanged(bool pressed);
 	void viewportResized(int w, int h);
 	void updateGroundPlane();
 	void sendLightmapNeededFlagsSlot();
 	void useActionTriggered(bool use_mouse_cursor); // if use_mouse_cursor is false, use crosshair as cursor instead.
+	void selectObjectUnderCrosshair();
+	void nudgeSelectedObject(const Vec3d& delta);
+	void controllerEditSelectedVoxelAtCrosshair(bool add_voxel);
 	void loginButtonClicked();
 	void signupButtonClicked();
 	void loggedInButtonClicked();
@@ -604,6 +615,7 @@ public:
 
 	int url_parcel_uid; // Was there a parcel UID in the URL? e.g. was it like sub://localhost/parcel/200?  If so we want to move there when the parcels are loaded and we know where it is. 
 	// -1 if no parcel UID in URL.
+	bool go_to_world_spawn_pos; // Do we want to move to the world settings spawn position (if set) once the world settings are received from the server?
 
 	Timer fps_display_timer;
 	int num_frames_since_fps_timer_reset;
@@ -826,6 +838,8 @@ public:
 
 
 	bool SHIFT_down, CTRL_down, A_down, W_down, S_down, D_down, space_down, C_down, left_down, right_down, up_down, down_down, B_down;
+	bool gamepad_l1_down, gamepad_r1_down;
+	bool gamepad_space_was_down;
 
 	js::Vector<Reference<ThreadMessage>, 16> temp_msgs;
 

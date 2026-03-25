@@ -29,6 +29,7 @@ struct IMFDXGIDeviceManager;
 struct _SDL_GameController;
 class RenderStatsWidget;
 class MiniDmpSender;
+class AddObjectDialog;
 
 
 class MainWindow final : public QMainWindow, public PrintOutput, public UIInterface
@@ -122,6 +123,18 @@ private slots:;
 	void glWidgetMouseWheelEvent(QWheelEvent* e);
 	void gamepadButtonXChanged(bool pressed);
 	void gamepadButtonAChanged(bool pressed);
+	void gamepadButtonBChanged(bool pressed);
+	void gamepadButtonYChanged(bool pressed);
+	void gamepadButtonL1Changed(bool pressed);
+	void gamepadButtonR1Changed(bool pressed);
+	void gamepadButtonUpChanged(bool pressed);
+	void gamepadButtonDownChanged(bool pressed);
+	void gamepadButtonLeftChanged(bool pressed);
+	void gamepadButtonRightChanged(bool pressed);
+	void gamepadAxisLeftXChanged(double value);
+	void gamepadAxisLeftYChanged(double value);
+	void gamepadAxisRightXChanged(double value);
+	void gamepadAxisRightYChanged(double value);
 	void glWidgetViewportResized(int w, int h);
 	void onIndigoViewDockWidgetVisibilityChanged(bool v);
 	void glWidgetCutShortcutTriggered();
@@ -165,6 +178,7 @@ private:
 	void updateStatusBar();
 	void updateDiagnostics();
 	void runScreenshotCode();
+	void openAddObjectDialog(bool controller_mode);
 
 	virtual void dragEnterEvent(QDragEnterEvent* event) override;
 	virtual void dropEvent(QDropEvent* event) override;
@@ -373,6 +387,13 @@ public:
 
 	Reference<RenderStatsWidget> CPU_render_stats_widget;
 	Reference<RenderStatsWidget> GPU_render_stats_widget;
+
+	AddObjectDialog* active_add_object_dialog;
+	bool gamepad_r1_down;
+	bool gamepad_list_nav_up_latched;
+	bool gamepad_list_nav_down_latched;
+	bool gamepad_list_nav_left_latched;
+	bool gamepad_list_nav_right_latched;
 
 	MiniDmpSender* minidump_sender;
 };

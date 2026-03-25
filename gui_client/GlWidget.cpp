@@ -180,6 +180,18 @@ void GlWidget::initGamepadsSlot()
 		connect(gamepad, SIGNAL(buttonXChanged(bool)), this, SLOT(buttonXChangedSlot(bool)));
 		connect(gamepad, SIGNAL(buttonXChanged(bool)), this, SIGNAL(gamepadButtonXChangedSignal(bool)));
 		connect(gamepad, SIGNAL(buttonAChanged(bool)), this, SIGNAL(gamepadButtonAChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonBChanged(bool)), this, SIGNAL(gamepadButtonBChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonYChanged(bool)), this, SIGNAL(gamepadButtonYChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonL1Changed(bool)), this, SIGNAL(gamepadButtonL1ChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonR1Changed(bool)), this, SIGNAL(gamepadButtonR1ChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonUpChanged(bool)), this, SIGNAL(gamepadButtonUpChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonDownChanged(bool)), this, SIGNAL(gamepadButtonDownChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonLeftChanged(bool)), this, SIGNAL(gamepadButtonLeftChangedSignal(bool)));
+		connect(gamepad, SIGNAL(buttonRightChanged(bool)), this, SIGNAL(gamepadButtonRightChangedSignal(bool)));
+		connect(gamepad, SIGNAL(axisLeftXChanged(double)), this, SIGNAL(gamepadAxisLeftXChangedSignal(double)));
+		connect(gamepad, SIGNAL(axisLeftYChanged(double)), this, SIGNAL(gamepadAxisLeftYChangedSignal(double)));
+		connect(gamepad, SIGNAL(axisRightXChanged(double)), this, SIGNAL(gamepadAxisRightXChangedSignal(double)));
+		connect(gamepad, SIGNAL(axisRightYChanged(double)), this, SIGNAL(gamepadAxisRightYChangedSignal(double)));
 	}
 #endif
 }

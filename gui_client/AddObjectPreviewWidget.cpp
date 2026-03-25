@@ -126,6 +126,12 @@ void AddObjectPreviewWidget::initializeGL()
 	assert(QGLContext::currentContext() == this->context()); // "There is no need to call makeCurrent() because this has already been done when this function is called."  (https://doc.qt.io/qt-5/qglwidget.html#initializeGL)
 
 	std::string data_dir = base_dir_path + "/data";
+	if(!FileUtils::fileExists(data_dir + "/shaders/phong_frag_shader.glsl"))
+	{
+		const std::string fallback_data_dir = "./data";
+		if(FileUtils::fileExists(fallback_data_dir + "/shaders/phong_frag_shader.glsl"))
+			data_dir = fallback_data_dir;
+	}
 #if BUILD_TESTS
 	try
 	{
@@ -152,7 +158,7 @@ void AddObjectPreviewWidget::initializeGL()
 	{
 		try
 		{
-			opengl_engine->setCirrusTexture(opengl_engine->getTexture(base_dir_path + "/data/resources/cirrus.exr"));
+			opengl_engine->setCirrusTexture(opengl_engine->getTexture(data_dir + "/resources/cirrus.exr"));
 		}
 		catch(glare::Exception& e)
 		{
@@ -185,12 +191,11 @@ void AddObjectPreviewWidget::initializeGL()
 		ob->materials[0].albedo_linear_rgb = toLinearSRGB(Colour3f(0.8f));
 		try
 		{
-			ob->materials[0].albedo_texture = opengl_engine->getTexture(base_dir_path + "/data/resources/obstacle.png");
+			ob->materials[0].albedo_texture = opengl_engine->getTexture(data_dir + "/resources/obstacle.png");
 		}
 		catch(glare::Exception& e)
 		{
-			assert(0);
-			conPrint("ERROR: " + e.what());
+			conPrint("ERROR loading AddObjectDialog preview texture: " + e.what());
 		}
 		ob->materials[0].roughness = 0.8f;
 		ob->materials[0].fresnel_scale = 0.5f;

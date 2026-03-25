@@ -174,6 +174,7 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 #endif
 	//task_manager(NULL), // Currently just used for LODGeneration::generateLODTexturesForMaterialsIfNotPresent().
 	url_parcel_uid(-1),
+	go_to_world_spawn_pos(false),
 	running_destructor(false),
 	biome_manager(NULL),
 	scratch_packet(SocketBufferOutStream::DontUseNetworkByteOrder),
@@ -225,6 +226,9 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	up_down = false;
 	down_down = false;
 	B_down = false;
+	gamepad_l1_down = false;
+	gamepad_r1_down = false;
+	gamepad_space_was_down = false;
 
 	texture_server = new TextureServer(/*use_canonical_path_keys=*/false); // Just used for caching textures for GUIClient::setMaterialFlagsForObject()
 
@@ -5366,41 +5370,42 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 		}
 
 		const float selfie_move_factor = cam_controller.selfieModeEnabled() ? -1.f : 1.f;
+		const bool shift_or_gamepad_boost = SHIFT_down || gamepad_l1_down;
 
 		if(W_down || up_down)
-		{	player_physics.processMoveForwards(1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveForwards(1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(S_down || down_down)
-		{	player_physics.processMoveForwards(-1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveForwards(-1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(A_down)
-		{	player_physics.processStrafeRight(-1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processStrafeRight(-1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(D_down)
-		{	player_physics.processStrafeRight(1.f * selfie_move_factor, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processStrafeRight(1.f * selfie_move_factor, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 
 		// Move vertically up or down in flymode.
 		if(space_down)
-		{	player_physics.processMoveUp(1.f, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveUp(1.f, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 		if(C_down && !CTRL_down) // Check CTRL_down to prevent CTRL+C shortcut moving camera up.
-		{	player_physics.processMoveUp(-1.f, SHIFT_down, this->cam_controller); move_key_pressed = true; }
+		{	player_physics.processMoveUp(-1.f, shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; }
 
 		// Turn left or right
 		const float base_rotate_speed = 200;
 		if(left_down)
-		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt * -base_rotate_speed * (SHIFT_down ? 3.0 : 1.0)); }
+		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt * -base_rotate_speed * (shift_or_gamepad_boost ? 3.0 : 1.0)); }
 		if(right_down)
-		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt *  base_rotate_speed * (SHIFT_down ? 3.0 : 1.0)); }
+		{	this->cam_controller.updateRotation(/*pitch_delta=*/0, /*heading_delta=*/dt *  base_rotate_speed * (shift_or_gamepad_boost ? 3.0 : 1.0)); }
 
 		if(misc_info_ui.movement_button && misc_info_ui.movement_button->pressed)
 		{
 			const Vec2f frac_coords = div((gl_ui->getLastMouseUICoords() - misc_info_ui.movement_button->rect.getMin()), misc_info_ui.movement_button->rect.getWidths());
 
-			player_physics.processStrafeRight (selfie_move_factor * 4 * (frac_coords.x - 0.5f), SHIFT_down, this->cam_controller);
-			player_physics.processMoveForwards(selfie_move_factor * 4 * (frac_coords.y - 0.5f), SHIFT_down, this->cam_controller);
+			player_physics.processStrafeRight (selfie_move_factor * 4 * (frac_coords.x - 0.5f), shift_or_gamepad_boost, this->cam_controller);
+			player_physics.processMoveForwards(selfie_move_factor * 4 * (frac_coords.y - 0.5f), shift_or_gamepad_boost, this->cam_controller);
 			
 			move_key_pressed = true;
 		}
 
 
-		input_out.SHIFT_down =	SHIFT_down;
+		input_out.SHIFT_down =	shift_or_gamepad_boost;
 		input_out.CTRL_down =	CTRL_down;
 		input_out.W_down =		W_down;
 		input_out.S_down =		S_down;
@@ -5417,33 +5422,48 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 
 	if(ui_interface->gamepadAttached())
 	{
+		const bool shift_or_gamepad_boost = SHIFT_down || gamepad_l1_down;
+
 		// Since we don't have the shift key available, move a bit faster in flymode
 		const float gamepad_move_speed_factor = player_physics.flyModeEnabled() ? 4.f : 2.f;
 		const float gamepad_rotate_speed = 400;
+		const float gamepad_l2 = ui_interface->gamepadButtonL2();
+		const float gamepad_r2 = ui_interface->gamepadButtonR2();
+		const bool gamepad_space_down = gamepad_r2 > 0.2f;
 
 		// Move vertically up or down in flymode.
-		if(ui_interface->gamepadButtonL2() != 0) // Left trigger
+		if(player_physics.flyModeEnabled() && gamepad_l2 != 0) // Left trigger
 		{	
-			player_physics.processMoveUp(gamepad_move_speed_factor * -pow(ui_interface->gamepadButtonL2(), 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveUp(gamepad_move_speed_factor * -pow(gamepad_l2, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
-		input_out.left_trigger = ui_interface->gamepadButtonL2();
+		input_out.left_trigger = gamepad_l2;
 
-		if(ui_interface->gamepadButtonR2() != 0) // Right trigger
+		if(player_physics.flyModeEnabled() && gamepad_r2 != 0) // Right trigger
 		{	
-			player_physics.processMoveUp(gamepad_move_speed_factor * pow(ui_interface->gamepadButtonR2(), 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveUp(gamepad_move_speed_factor * pow(gamepad_r2, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
-		input_out.right_trigger = ui_interface->gamepadButtonR2();
+		input_out.right_trigger = gamepad_r2;
+
+		if(gamepad_space_down && !gamepad_space_was_down && !player_physics.flyModeEnabled() && vehicle_controller_inside.isNull() &&
+			!(cam_controller.current_cam_mode == CameraController::CameraMode_FreeCamera))
+		{
+			player_physics.processJump(this->cam_controller, /*cur time=*/Clock::getTimeSinceInit());
+		}
+		gamepad_space_was_down = gamepad_space_down;
+		input_out.space_down = input_out.space_down || gamepad_space_down; // Space equivalent for brake/jump behavior.
 
 		const float axis_left_x = ui_interface->gamepadAxisLeftX();
 		const float axis_left_y = ui_interface->gamepadAxisLeftY();
 		if(axis_left_x != 0)
 		{	
-			player_physics.processStrafeRight(gamepad_move_speed_factor * pow(axis_left_x, 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processStrafeRight(gamepad_move_speed_factor * pow(axis_left_x, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
 		if(axis_left_y != 0)
 		{	
-			player_physics.processMoveForwards(gamepad_move_speed_factor * -pow(axis_left_y, 3.f), SHIFT_down, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
+			player_physics.processMoveForwards(gamepad_move_speed_factor * -pow(axis_left_y, 3.f), shift_or_gamepad_boost, this->cam_controller); move_key_pressed = true; last_cursor_movement_was_from_mouse = false;
 		}
+
+		input_out.SHIFT_down = shift_or_gamepad_boost;
 
 		input_out.axis_left_x = axis_left_x;
 		input_out.axis_left_y = axis_left_y;
@@ -5468,6 +5488,10 @@ void GUIClient::processPlayerPhysicsInput(float dt, bool world_render_has_keyboa
 		}
 
 		hud_ui.setCrosshairDotVisible(!last_cursor_movement_was_from_mouse);
+	}
+	else
+	{
+		gamepad_space_was_down = false;
 	}
 
 	if(cam_controller.current_cam_mode == CameraController::CameraMode_FreeCamera)
@@ -9184,6 +9208,19 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 			this->connected_world_settings.copyNetworkStateFrom(m->world_settings); // Store world settings to be used later
 			this->received_world_settings_since_connect_or_world_change = true;
 
+			if(m->is_initial_send && go_to_world_spawn_pos)
+			{
+				// Jump to the world_settings start location / spawn pos if set
+				if(BitUtils::isBitSet(m->world_settings.flags, WorldSettings::USE_SPAWN_POINT_FLAG))
+				{
+					this->cam_controller.setFirstAndThirdPersonPositions(m->world_settings.spawn_point);
+					this->player_physics.setEyePosition(m->world_settings.spawn_point);
+				}
+
+				go_to_world_spawn_pos = false;
+			}
+
+
 			bool ignore_update = false; // If we generated this world settings update by changing something in the local world settings UI,
 			// we want to ignore this update coming back from the server.
 
@@ -10066,6 +10103,11 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 	bool should_display_voxel_edit_face_marker = false;
 	if(selectedObjectIsVoxelOb())
 	{
+		const bool gamepad_add_down = gamepad_r1_down;
+		const bool gamepad_delete_down = gamepad_l1_down;
+		const bool add_mode_down = mouse_cursor_state.ctrl_key_down || gamepad_add_down;
+		const bool delete_mode_down = mouse_cursor_state.alt_key_down || gamepad_delete_down;
+
 		// NOTE: Stupid qt: QApplication::keyboardModifiers() doesn't update properly when just CTRL is pressed/released, without any other events.
 		// So use GetAsyncKeyState on Windows, since it actually works.
 #if defined(_WIN32)
@@ -10077,12 +10119,15 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 		//const bool alt_key_down  = (modifiers & Qt::AltModifier)     != 0;
 #endif
 
-		if(mouse_cursor_state.ctrl_key_down || mouse_cursor_state.alt_key_down)
+		if(add_mode_down || delete_mode_down)
 		{
 			//const QPoint mouse_point = ui->glWidget->mapFromGlobal(QCursor::pos());
+			Vec2i trace_cursor_pos = mouse_cursor_state.cursor_pos;
+			if(gamepad_add_down || gamepad_delete_down)
+				trace_cursor_pos = Vec2i(opengl_engine->getMainViewPortWidth() / 2, opengl_engine->getMainViewPortHeight() / 2);
 
 			const Vec4f origin = this->cam_controller.getPosition().toVec4fPoint();
-			const Vec4f dir = getDirForPixelTrace(mouse_cursor_state.cursor_pos.x, mouse_cursor_state.cursor_pos.y);
+			const Vec4f dir = getDirForPixelTrace(trace_cursor_pos.x, trace_cursor_pos.y);
 			RayTraceResult results;
 			this->physics_world->traceRay(origin, dir, /*max_t=*/1.0e5f, /*ignore body id=*/JPH::BodyID(), results);
 			if(results.hit_object)
@@ -10099,7 +10144,7 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 						Matrix4f ob_to_world = obToWorldMatrix(*selected_ob);
 						Matrix4f world_to_ob = worldToObMatrix(*selected_ob);
 
-						if(mouse_cursor_state.ctrl_key_down)
+						if(add_mode_down)
 						{
 							const Vec4f point_off_surface = hitpos_ws + results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
 							const Vec4f point_os = world_to_ob * point_off_surface;
@@ -10164,7 +10209,7 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 							opengl_engine->objectMaterialsUpdated(*this->voxel_edit_marker);
 
 						}
-						else if(mouse_cursor_state.alt_key_down)
+						else if(delete_mode_down)
 						{
 							const Vec4f point_under_surface = hitpos_ws - results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
 							const Vec4f point_os = world_to_ob * point_under_surface;
@@ -12601,6 +12646,9 @@ void GUIClient::visitSubURL(const std::string& URL, bool push_prev_URL_on_nav_st
 	else
 		this->url_parcel_uid = -1;
 
+	// If we have explicit coordinates in the URL, use those, otherwise use the world settings spawn pos.
+	this->go_to_world_spawn_pos = !parse_res.parsed_x && !parse_res.parsed_y && !parse_res.parsed_z;
+
 	const bool change_to_different_world_msg_supported = server_protocol_version >= 44; // ChangeToDifferentWorld message was added in protocol version 44.
 
 	if((hostname != this->server_hostname) || ((worldname != this->server_worldname) && !change_to_different_world_msg_supported))
@@ -12933,6 +12981,9 @@ void GUIClient::connectToServer(const URLParseResults& parse_res)
 		spawn_pos.y = parse_res.y;
 	if(parse_res.parsed_z)
 		spawn_pos.z = parse_res.z;
+
+	// If we have explicit coordinates in the URL, use those, otherwise use the world settings spawn pos.
+	this->go_to_world_spawn_pos = !parse_res.parsed_x && !parse_res.parsed_y && !parse_res.parsed_z;
 
 	//-------------------------------- Do disconnect process --------------------------------
 	disconnectFromServerAndClearAllObjects();
@@ -14913,15 +14964,307 @@ void GUIClient::onMouseWheelEvent(MouseWheelEvent& e)
 
 void GUIClient::gamepadButtonXChanged(bool pressed)
 {
-	//if(pressed)
-	//	useActionTriggered(/*use_mouse_cursor=*/false);
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+
+	if(gamepad_l1_down && gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			deleteSelectedObject();
+		return;
+	}
+
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+		{
+			if(!this->selected_ob_picked_up)
+				pickUpSelectedObject();
+			else
+				dropSelectedObject();
+		}
+		return;
+	}
+
+	selectObjectUnderCrosshair();
 }
 
 
 void GUIClient::gamepadButtonAChanged(bool pressed)
 {
+	if(!pressed)
+		return;
+
+	if(selectedObjectIsVoxelOb())
+	{
+		if(gamepad_r1_down)
+		{
+			controllerEditSelectedVoxelAtCrosshair(/*add_voxel=*/true);
+			return;
+		}
+
+		if(gamepad_l1_down)
+		{
+			controllerEditSelectedVoxelAtCrosshair(/*add_voxel=*/false);
+			return;
+		}
+	}
+
+	useActionTriggered(/*use_mouse_cursor=*/false);
+}
+
+
+void GUIClient::gamepadButtonBChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	if(gamepad_l1_down && gamepad_r1_down)
+	{
+		try
+		{
+			summonHovercar();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+	else if(gamepad_l1_down)
+	{
+		try
+		{
+			summonBoat();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+	else if(gamepad_r1_down)
+	{
+		try
+		{
+			summonCar();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+	else
+	{
+		try
+		{
+			summonBike();
+		}
+		catch(glare::Exception& e)
+		{
+			showErrorNotification(e.what());
+		}
+	}
+}
+
+
+void GUIClient::gamepadButtonYChanged(bool pressed)
+{
 	if(pressed)
-		useActionTriggered(/*use_mouse_cursor=*/false);
+		ui_interface->toggleFlyMode();
+}
+
+
+void GUIClient::gamepadButtonL1Changed(bool pressed)
+{
+	gamepad_l1_down = pressed;
+}
+
+
+void GUIClient::gamepadButtonR1Changed(bool pressed)
+{
+	gamepad_r1_down = pressed;
+}
+
+
+void GUIClient::gamepadButtonUpChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, this->cam_controller.getRightVec().toVec4fVector(), -Maths::pi<float>() / 32.f);
+	}
+	else if(gamepad_l1_down)
+		nudgeSelectedObject(Vec3d(0, 0, 1));
+	else
+		nudgeSelectedObject(Vec3d(1, 0, 0));
+}
+
+
+void GUIClient::gamepadButtonDownChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, this->cam_controller.getRightVec().toVec4fVector(), Maths::pi<float>() / 32.f);
+	}
+	else if(gamepad_l1_down)
+		nudgeSelectedObject(Vec3d(0, 0, -1));
+	else
+		nudgeSelectedObject(Vec3d(-1, 0, 0));
+}
+
+
+void GUIClient::gamepadButtonLeftChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, Vec4f(0,0,1,0), -Maths::pi<float>() / 32.f);
+	}
+	else
+		nudgeSelectedObject(Vec3d(0, 1, 0));
+}
+
+
+void GUIClient::gamepadButtonRightChanged(bool pressed)
+{
+	if(!pressed)
+		return;
+
+	last_cursor_movement_was_from_mouse = false;
+	if(gamepad_r1_down)
+	{
+		if(this->selected_ob.nonNull())
+			rotateObject(this->selected_ob, Vec4f(0,0,1,0), Maths::pi<float>() / 32.f);
+	}
+	else
+		nudgeSelectedObject(Vec3d(0, -1, 0));
+}
+
+
+void GUIClient::selectObjectUnderCrosshair()
+{
+	if(opengl_engine.isNull())
+		return;
+
+	MouseEvent mouse_event;
+	mouse_event.cursor_pos = Vec2i(opengl_engine->getMainViewPortWidth() / 2, opengl_engine->getMainViewPortHeight() / 2);
+	mouse_event.gl_coords = Vec2f(0.f);
+
+	doObjectSelectionTraceForMouseEvent(mouse_event);
+}
+
+
+void GUIClient::nudgeSelectedObject(const Vec3d& delta)
+{
+	if(this->selected_ob.isNull())
+		return;
+
+	const double step = ui_interface->snapToGridCheckBoxChecked() ? ui_interface->gridSpacing() : 0.2;
+	const Vec3d delta_scaled = delta * step;
+	const Vec4f desired_new_ob_pos = this->selected_ob->pos.toVec4fPoint() + Vec4f((float)delta_scaled.x, (float)delta_scaled.y, (float)delta_scaled.z, 0.f);
+	tryToMoveObject(this->selected_ob, desired_new_ob_pos);
+}
+
+
+void GUIClient::controllerEditSelectedVoxelAtCrosshair(bool add_voxel)
+{
+	if(!selectedObjectIsVoxelOb() || selected_ob.isNull())
+		return;
+
+	const bool have_edit_permissions = objectModificationAllowedWithMsg(*selected_ob, "edit");
+	if(!have_edit_permissions)
+		return;
+
+	const float gl_w = (float)opengl_engine->getMainViewPortWidth();
+	const float gl_h = (float)opengl_engine->getMainViewPortHeight();
+	const int cx = (int)(gl_w * 0.5f);
+	const int cy = (int)(gl_h * 0.5f);
+
+	const Vec4f origin = this->cam_controller.getPosition().toVec4fPoint();
+	const Vec4f dir = getDirForPixelTrace(cx, cy);
+
+	RayTraceResult results;
+	this->physics_world->traceRay(origin, dir, /*max_t=*/1.0e5f, /*ignore body id=*/JPH::BodyID(), results);
+	if(!results.hit_object)
+		return;
+
+	selected_ob->decompressVoxels();
+
+	const float current_voxel_w = 1;
+	const Matrix4f world_to_ob = worldToObMatrix(*selected_ob);
+
+	bool voxels_changed = false;
+
+	if(add_voxel)
+	{
+		const Vec4f point_off_surface = origin + dir * results.hit_t + results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
+
+		const float dist_from_aabb = selected_ob->opengl_engine_ob.nonNull() ? selected_ob->opengl_engine_ob->aabb_ws.distanceToPoint(point_off_surface) : 0.f;
+		if(dist_from_aabb >= 2.f)
+		{
+			showErrorNotification("Can't create voxel that far away from rest of voxels.");
+			return;
+		}
+
+		undo_buffer.startWorldObjectEdit(*selected_ob);
+
+		const Vec4f point_os = world_to_ob * point_off_surface;
+		const Vec4f point_os_voxel_space = point_os / current_voxel_w;
+		Vec3<int> voxel_indices((int)floor(point_os_voxel_space[0]), (int)floor(point_os_voxel_space[1]), (int)floor(point_os_voxel_space[2]));
+
+		selected_ob->getDecompressedVoxels().push_back(Voxel());
+		selected_ob->getDecompressedVoxels().back().pos = voxel_indices;
+		selected_ob->getDecompressedVoxels().back().mat_index = ui_interface->getSelectedMatIndex();
+
+		voxels_changed = true;
+
+		undo_buffer.finishWorldObjectEdit(*selected_ob);
+	}
+	else
+	{
+		if(selected_ob->getDecompressedVoxels().size() <= 1)
+		{
+			showErrorNotification("Can't delete last voxel in voxel group.  Delete entire voxel object ('delete' key) to remove it.");
+			return;
+		}
+
+		undo_buffer.startWorldObjectEdit(*selected_ob);
+
+		const Vec4f point_under_surface = origin + dir * results.hit_t - results.hit_normal_ws * (current_voxel_w * 1.0e-3f);
+		const Vec4f point_os = world_to_ob * point_under_surface;
+		const Vec4f point_os_voxel_space = point_os / current_voxel_w;
+		Vec3<int> voxel_indices((int)floor(point_os_voxel_space[0]), (int)floor(point_os_voxel_space[1]), (int)floor(point_os_voxel_space[2]));
+
+		for(size_t z=0; z<selected_ob->getDecompressedVoxels().size(); ++z)
+		{
+			if(selected_ob->getDecompressedVoxels()[z].pos == voxel_indices)
+			{
+				selected_ob->getDecompressedVoxels().erase(selected_ob->getDecompressedVoxels().begin() + z);
+				break;
+			}
+		}
+
+		voxels_changed = true;
+
+		undo_buffer.finishWorldObjectEdit(*selected_ob);
+	}
+
+	if(voxels_changed)
+		updateObjectModelForChangedDecompressedVoxels(selected_ob);
 }
 
 
@@ -16414,6 +16757,9 @@ void GUIClient::focusOut()
 	up_down = false;
 	down_down = false;
 	B_down = false;
+	gamepad_l1_down = false;
+	gamepad_r1_down = false;
+	gamepad_space_was_down = false;
 }
 
 

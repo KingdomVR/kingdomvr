@@ -35,11 +35,17 @@ public:
 	static void tryLoadTexturesForPreviewOb(Reference<GLObject> preview_gl_ob, std::vector<WorldMaterialRef>& world_materials, OpenGLEngine* opengl_engine, 
 		TextureServer& texture_server, QWidget* parent_widget);
 
+	void enableControllerModelLibraryOnlyMode();
+	void controllerMoveSelectionGrid(int dx, int dy);
+	void controllerCreateSelectedModel();
+	bool ensureCreationPayloadReady();
+
 private slots:;
 	void accepted();
 	void dialogFinished();
 
 	void modelSelected(QListWidgetItem*);
+	void modelHovered(QListWidgetItem*);
 	void modelDoubleClicked(QListWidgetItem*);
 
 	void filenameChanged(QString& filename);
@@ -54,6 +60,7 @@ private:
 	void loadModelIntoPreview(const std::string& local_path);
 
 	void shutdownGL();
+	void previewListItemModel(QListWidgetItem* item);
 
 	QSettings* settings;
 
@@ -80,6 +87,7 @@ private:
 
 	std::string base_dir_path;
 	std::vector<std::string> models;
+	std::string last_preview_model_path;
 
 	URLString last_url;
 
@@ -95,4 +103,6 @@ private:
 
 	glare::TaskManager* main_task_manager;
 	glare::TaskManager* high_priority_task_manager;
+
+	bool controller_mode;
 };
