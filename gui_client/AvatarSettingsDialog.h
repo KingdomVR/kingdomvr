@@ -8,14 +8,17 @@ Copyright Glare Technologies Limited 2022 -
 
 #include "ui_AvatarSettingsDialog.h"
 #include "../dll/include/IndigoMesh.h"
+#include "DownloadingResourceQueue.h"
 #include "../shared/WorldMaterial.h"
 #include "../shared/WorldObject.h"
+#include "../shared/URLString.h"
 #include <utils/ThreadManager.h>
 #include <graphics/BatchedMesh.h>
 #include <QtCore/QString>
 class QSettings;
 class AnimationManager;
 struct GLObject;
+class QListWidgetItem;
 
 
 /*=====================================================================
@@ -32,7 +35,15 @@ class AvatarSettingsDialog : public QDialog, private Ui_AvatarSettingsDialog
 {
 	Q_OBJECT
 public:
-	AvatarSettingsDialog(const std::string& base_dir_path_, QSettings* settings, Reference<ResourceManager> resource_manager, AnimationManager* anim_manager);
+	struct AvatarLibraryEntry
+	{
+		std::string display_name;
+		URLString model_URL;
+		URLString thumbnail_URL;
+	};
+
+	AvatarSettingsDialog(const std::string& base_dir_path_, QSettings* settings, Reference<ResourceManager> resource_manager, AnimationManager* anim_manager,
+		const std::string& logged_in_username_, DownloadingResourceQueue* download_queue_, const std::vector<AvatarLibraryEntry>& server_avatar_library_);
 	~AvatarSettingsDialog();
 
 	//std::string getAvatarName();
@@ -41,6 +52,9 @@ private slots:;
 	void dialogFinished();
 
 	void avatarFilenameChanged(QString& filename);
+	void avatarTabChanged(int index);
+	void serverAvatarSelected(QListWidgetItem* item);
+	void customAvatarSelected(QListWidgetItem* item);
 
 	void animationComboBoxIndexChanged(int index);
 	
@@ -49,6 +63,11 @@ private:
 	virtual void timerEvent(QTimerEvent* event);
 
 	void loadModelIntoPreview(const std::string& local_path, bool show_error_dialogs);
+	void refreshServerAvatarList();
+	void loadCustomAvatarPaths();
+	void saveCustomAvatarPaths();
+	void refreshServerAvatarThumbnail();
+	std::string customAvatarSettingsKey() const;
 
 	void shutdownGL();
 
@@ -72,6 +91,15 @@ public:
 
 	Reference<TextureServer> texture_server;
 	AnimationManager* anim_manager;
+
+	std::string logged_in_username;
+	DownloadingResourceQueue* download_queue;
+	std::vector<AvatarLibraryEntry> server_avatar_library;
+	std::vector<std::string> custom_avatar_paths;
+
+public:
+	bool use_server_avatar_selection;
+	URLString selected_server_avatar_URL;
 };
 
 #ifdef _WIN32

@@ -1509,15 +1509,34 @@ static void enqueueMessageToSend(ClientThread& client_thread, SocketBufferOutStr
 
 void MainWindow::on_actionAvatarSettings_triggered()
 {
-	AvatarSettingsDialog dialog(this->base_dir_path, this->settings, gui_client.resource_manager, &gui_client.animation_manager);
+	std::vector<AvatarSettingsDialog::AvatarLibraryEntry> server_avatar_library;
+	server_avatar_library.reserve(gui_client.server_avatar_library.size());
+	for(size_t i=0; i<gui_client.server_avatar_library.size(); ++i)
+	{
+		AvatarSettingsDialog::AvatarLibraryEntry entry;
+		entry.display_name = gui_client.server_avatar_library[i].display_name;
+		entry.model_URL = gui_client.server_avatar_library[i].model_URL;
+		entry.thumbnail_URL = gui_client.server_avatar_library[i].thumbnail_URL;
+		server_avatar_library.push_back(entry);
+	}
+
+	AvatarSettingsDialog dialog(this->base_dir_path, this->settings, gui_client.resource_manager, &gui_client.animation_manager,
+		gui_client.logged_in_user_name, &gui_client.download_queue, server_avatar_library);
 	const int res = dialog.exec();
 	ui->glWidget->makeCurrent();// Change back from the dialog GL context to the mainwindow GL context.
 
-	if((res == QDialog::Accepted) && dialog.loaded_mesh.nonNull()) //  loaded_object.nonNull()) // If the dialog was accepted, and we loaded something:
+	if(res == QDialog::Accepted)
 	{
 		try
 		{
-			gui_client.updateOurAvatarModel(dialog.loaded_mesh, dialog.result_path, dialog.pre_ob_to_world_matrix, dialog.loaded_materials);
+			if(dialog.use_server_avatar_selection && !dialog.selected_server_avatar_URL.empty())
+			{
+				gui_client.setOurAvatarModelURL(dialog.selected_server_avatar_URL);
+			}
+			else if(dialog.loaded_mesh.nonNull())
+			{
+				gui_client.updateOurAvatarModel(dialog.loaded_mesh, dialog.result_path, dialog.pre_ob_to_world_matrix, dialog.loaded_materials);
+			}
 		}
 		catch(glare::Exception& e)
 		{

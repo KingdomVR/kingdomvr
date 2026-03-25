@@ -14,6 +14,7 @@ Copyright Glare Technologies Limited 2016 -
 #include <IPAddress.h>
 #include <utils/UniqueRef.h>
 #include <utils/Timer.h>
+#include <vector>
 class WorkerThread;
 class SubstrataLuaVM;
 class LuaHTTPRequestManager;
@@ -26,6 +27,14 @@ struct ServerConnectedClientInfo
 	IPAddress ip_addr;
 	UID client_avatar_id;
 	int client_UDP_port; // UDP port on client end
+};
+
+
+struct ServerAvatarLibraryEntry
+{
+	std::string display_name;
+	URLString model_URL;
+	URLString thumbnail_URL;
 };
 
 
@@ -127,6 +136,9 @@ public:
 	// Thread-safe, can be called from any thread.
 	void enqueuePacketToBroadcastForAllWorlds(const SocketBufferOutStream& packet_buffer);
 
+	void setAvatarLibraryEntries(const std::vector<ServerAvatarLibraryEntry>& entries);
+	std::vector<ServerAvatarLibraryEntry> getAvatarLibraryEntriesCopy();
+
 
 	Reference<ServerAllWorldsState> world_state;
 
@@ -155,6 +167,9 @@ public:
 	Timer total_timer;
 	TimerQueue timer_queue;
 	std::vector<TimerQueueTimer> temp_triggered_timers;
+
+	Mutex avatar_library_mutex;
+	std::vector<ServerAvatarLibraryEntry> avatar_library_entries GUARDED_BY(avatar_library_mutex);
 
 	Reference<LuaHTTPRequestManager> lua_http_manager;
 };

@@ -23,9 +23,6 @@
       </sizepolicy>
      </property>
      <layout class="QFormLayout" name="formLayout">
-      <item row="6" column="0">
-       <widget class="QWidget" name="widget_2" native="true"/>
-      </item>
       <item row="1" column="1">
        <widget class="QLineEdit" name="usernameLineEdit"/>
       </item>
@@ -36,15 +33,79 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
-       <widget class="FileSelectWidget" name="avatarSelectWidget"/>
-      </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="label_2">
-        <property name="text">
-         <string>Model:</string>
-        </property>
-       </widget>
+      <item row="2" column="0" colspan="2">
+        <widget class="QTabWidget" name="avatarTabWidget">
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="serverAvatarsTab">
+          <attribute name="title">
+           <string>Server Avatars</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="verticalLayout_serverTab">
+           <item>
+            <widget class="QLabel" name="serverAvatarHelpLabel">
+             <property name="text">
+              <string>Select a server-provided avatar. Thumbnails are shown for fast browsing.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QListWidget" name="serverAvatarListWidget"/>
+           </item>
+           <item>
+            <widget class="QLabel" name="serverAvatarThumbLabel">
+             <property name="minimumSize">
+              <size>
+            <width>256</width>
+            <height>256</height>
+              </size>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+             <property name="text">
+              <string>Select a server avatar.</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="customAvatarsTab">
+          <attribute name="title">
+           <string>Custom Avatars</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="verticalLayout_customTab">
+           <item>
+            <layout class="QFormLayout" name="formLayout_customSelect">
+             <item row="0" column="0">
+              <widget class="QLabel" name="customModelLabel">
+            <property name="text">
+             <string>Model:</string>
+            </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="FileSelectWidget" name="avatarSelectWidget"/>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QLabel" name="customAvatarHelpLabel">
+             <property name="text">
+              <string>Recently used custom avatars (max 10):</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QListWidget" name="customAvatarListWidget"/>
+           </item>
+          </layout>
+         </widget>
+        </widget>
       </item>
       <item row="5" column="0">
        <widget class="QLabel" name="label">
@@ -56,7 +117,7 @@
       <item row="5" column="1">
        <widget class="QComboBox" name="animationComboBox"/>
       </item>
-      <item row="4" column="1">
+    <item row="4" column="1">
        <spacer name="verticalSpacer">
         <property name="orientation">
          <enum>Qt::Vertical</enum>
@@ -69,6 +130,9 @@
         </property>
        </spacer>
       </item>
+    <item row="6" column="0">
+     <widget class="QWidget" name="widget_2" native="true"/>
+    </item>
      </layout>
     </widget>
    </item>

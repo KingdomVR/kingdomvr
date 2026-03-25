@@ -43,13 +43,14 @@ CyberspaceProtocolVersion
 47: Added UserGestureSettingsChanged message.
 48: Added ping+pong messages.
 49: Added AvatarSatOnSeat, AvatarGotUpFromSeat messages.
+50: Added ServerAvatarLibraryMessage.
 */
 namespace Protocol
 {
 
 const uint32 CyberspaceHello = 1357924680;
 
-const uint32 CyberspaceProtocolVersion = 49;
+const uint32 CyberspaceProtocolVersion = 50;
 
 const uint32 ClientProtocolOK		= 10000;
 const uint32 ClientProtocolTooOld	= 10001;
@@ -132,6 +133,7 @@ const uint32 WorldSettingsInitialSendMessage	= 3700;
 const uint32 WorldSettingsUpdate	= 3701;
 
 const uint32 WorldDetailsInitialSendMessage	= 3750; // Server is sending ServerWorldState to client.
+const uint32 ServerAvatarLibraryMessage		= 3760; // Server is sending avatar library entries to the client.
 
 const uint32 QueryMapTiles			= 3800; // Client wants to query map tile image URLs
 const uint32 MapTilesResult			= 3801; // Server is sending back a list of tile image URLs to the client.

@@ -4663,6 +4663,29 @@ void GUIClient::updateOurAvatarModel(BatchedMeshRef loaded_mesh, const std::stri
 }
 
 
+void GUIClient::setOurAvatarModelURL(const URLString& model_url)
+{
+	if(!logged_in_user_id.valid())
+		throw glare::Exception("You must be logged in to set your avatar model");
+
+	const Vec3d cam_angles = cam_controller.getAvatarAngles();
+	Avatar avatar;
+	avatar.uid = client_avatar_uid;
+	avatar.pos = Vec3d(cam_controller.getFirstPersonPosition());
+	avatar.rotation = Vec3f(0, (float)cam_angles.y, (float)cam_angles.x);
+	avatar.name = logged_in_user_name;
+	avatar.avatar_settings.model_url = model_url;
+	avatar.avatar_settings.pre_ob_to_world_matrix = Matrix4f::identity();
+	avatar.avatar_settings.materials.clear();
+
+	MessageUtils::initPacket(scratch_packet, Protocol::AvatarFullUpdate);
+	writeAvatarToNetworkStream(avatar, scratch_packet);
+	enqueueMessageToSend(*client_thread, scratch_packet);
+
+	showInfoNotification("Updated avatar.");
+}
+
+
 void GUIClient::setObjectLoadDistance(float new_dist)
 {
 	proximity_loader.setLoadDistance(new_dist);
@@ -8652,6 +8675,7 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 		case Msg_ClientConnectingToServerMessage:
 		{
 			this->connection_state = ServerConnectionState_Connecting;
+			this->server_avatar_library.clear();
 			//ui_interface->updateStatusBar();
 
 			this->server_ip_addr = checkedDowncastPtr<const ClientConnectingToServerMessage>(msg)->server_ip;
@@ -8870,6 +8894,7 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 			}
 			logMessage("Client disconnected from server " + (m->closed_gracefully ? std::string("gracefully") : std::string("ungracefully")) + ": " + m->error_message);
 			this->connection_state = ServerConnectionState_NotConnected;
+			this->server_avatar_library.clear();
 
 			this->logged_in_user_id = UserID::invalidUserID();
 			this->logged_in_user_name = "";
@@ -9230,6 +9255,22 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 			const WorldDetailsReceivedMessage* m = checkedDowncastPtr<const WorldDetailsReceivedMessage>(msg);
 
 			this->connected_world_details = m->world_details;
+		}
+		break;
+		case Msg_ServerAvatarLibraryMessage:
+		{
+			const ServerAvatarLibraryMessage* m = checkedDowncastPtr<const ServerAvatarLibraryMessage>(msg);
+
+			this->server_avatar_library.clear();
+			this->server_avatar_library.reserve(m->entries.size());
+			for(size_t i=0; i<m->entries.size(); ++i)
+			{
+				GUIClientServerAvatarEntry entry;
+				entry.display_name = m->entries[i].display_name;
+				entry.model_URL = m->entries[i].model_URL;
+				entry.thumbnail_URL = m->entries[i].thumbnail_URL;
+				this->server_avatar_library.push_back(entry);
+			}
 		}
 		break;
 		case Msg_MapTilesResultReceivedMessage:
