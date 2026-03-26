@@ -44,6 +44,7 @@ Copyright Glare Technologies Limited 2024 -
 #include "../shared/ImageDecoding.h"
 #include "../shared/MessageUtils.h"
 #include <QtCore/QMimeData>
+#include <QtCore/QCoreApplication>
 #include <QtCore/QSettings>
 #include <QtCore/QLoggingCategory>
 #include <QtGui/QMouseEvent>
@@ -52,6 +53,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QErrorMessage>
+#include <QtWidgets/QProgressDialog>
 #include <QtGamepad/QGamepadManager>
 #include <QtGamepad/QGamepad>
 #include "../qt/QtUtils.h"
@@ -1507,6 +1509,49 @@ static void enqueueMessageToSend(ClientThread& client_thread, SocketBufferOutStr
 }
 
 
+static void preloadAvatarThumbnails(Reference<ResourceManager> resource_manager, DownloadingResourceQueue& download_queue,
+	const std::vector<AvatarSettingsDialog::AvatarLibraryEntry>& server_avatar_library, QWidget* parent)
+{
+	std::vector<URLString> thumb_urls;
+	for(size_t i=0; i<server_avatar_library.size(); ++i)
+	{
+		if(!server_avatar_library[i].thumbnail_URL.empty())
+			thumb_urls.push_back(server_avatar_library[i].thumbnail_URL);
+	}
+
+	if(thumb_urls.empty())
+		return;
+
+	for(size_t i=0; i<thumb_urls.size(); ++i)
+		if(!resource_manager->isFileForURLPresent(thumb_urls[i]))
+			download_queue.enqueueOrUpdateItem(thumb_urls[i], Vec4f(0, 0, 0, 1), 1.f);
+
+	QProgressDialog progress("Downloading avatar thumbnails...", "Continue", 0, (int)thumb_urls.size(), parent);
+	progress.setWindowModality(Qt::WindowModal);
+	progress.setMinimumDuration(0);
+
+	while(true)
+	{
+		int done = 0;
+		for(size_t i=0; i<thumb_urls.size(); ++i)
+		{
+			if(resource_manager->isFileForURLPresent(thumb_urls[i]) || resource_manager->isInDownloadFailedURLs(thumb_urls[i]))
+				done++;
+		}
+
+		progress.setValue(done);
+		if(done >= (int)thumb_urls.size())
+			break;
+
+		QCoreApplication::processEvents(QEventLoop::AllEvents, 30);
+		if(progress.wasCanceled())
+			break;
+
+		PlatformUtils::Sleep(10);
+	}
+}
+
+
 void MainWindow::on_actionAvatarSettings_triggered()
 {
 	std::vector<AvatarSettingsDialog::AvatarLibraryEntry> server_avatar_library;
@@ -1519,6 +1564,8 @@ void MainWindow::on_actionAvatarSettings_triggered()
 		entry.thumbnail_URL = gui_client.server_avatar_library[i].thumbnail_URL;
 		server_avatar_library.push_back(entry);
 	}
+
+	preloadAvatarThumbnails(gui_client.resource_manager, gui_client.download_queue, server_avatar_library, this);
 
 	AvatarSettingsDialog dialog(this->base_dir_path, this->settings, gui_client.resource_manager, &gui_client.animation_manager,
 		gui_client.logged_in_user_name, &gui_client.download_queue, server_avatar_library);

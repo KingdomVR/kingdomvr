@@ -30,10 +30,11 @@ Copyright Glare Technologies Limited 2022 -
 #include <QtWidgets/QErrorMessage>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QListWidgetItem>
+#include <QtWidgets/QLineEdit>
 #include <QtCore/QSettings>
 #include <QtCore/QTimer>
+#include <QtCore/Qt>
 #include <QtGui/QIcon>
-#include <QtGui/QPixmap>
 #include <algorithm>
 
 
@@ -71,9 +72,14 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 	}
 
 	this->serverAvatarListWidget->setViewMode(QListWidget::IconMode);
-	this->serverAvatarListWidget->setIconSize(QSize(96, 96));
+	this->serverAvatarListWidget->setIconSize(QSize(160, 160));
+	this->serverAvatarListWidget->setGridSize(QSize(188, 210));
+	this->serverAvatarListWidget->setSpacing(8);
 	this->serverAvatarListWidget->setResizeMode(QListWidget::Adjust);
 	this->serverAvatarListWidget->setMovement(QListView::Static);
+	this->serverAvatarListWidget->setUniformItemSizes(true);
+	this->serverAvatarListWidget->setWrapping(true);
+	this->serverAvatarListWidget->setWordWrap(true);
 
 	const bool use_server_avatar = settings->value("AvatarSettingsDialog/useServerAvatar", false).toBool();
 	{
@@ -81,7 +87,7 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 		this->avatarTabWidget->setCurrentIndex(use_server_avatar ? 0 : 1);
 	}
 
-	loadCustomAvatarPaths();
+	this->server_avatar_filter = "";
 	refreshServerAvatarList();
 
 	if(use_server_avatar)
@@ -105,7 +111,7 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 	connect(this->avatarSelectWidget, SIGNAL(filenameChanged(QString&)), this, SLOT(avatarFilenameChanged(QString&)));
 	connect(this->avatarTabWidget, SIGNAL(currentChanged(int)), this, SLOT(avatarTabChanged(int)));
 	connect(this->serverAvatarListWidget, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(serverAvatarSelected(QListWidgetItem*)));
-	connect(this->customAvatarListWidget, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(customAvatarSelected(QListWidgetItem*)));
+	connect(this->serverAvatarSearchLineEdit, SIGNAL(textChanged(const QString&)), this, SLOT(serverAvatarSearchChanged(const QString&)));
 	connect(this->buttonBox, SIGNAL(accepted()), this, SLOT(accepted()));
 	connect(this, SIGNAL(finished(int)), this, SLOT(dialogFinished()));
 
@@ -162,16 +168,6 @@ void AvatarSettingsDialog::accepted()
 		this->settings->setValue("AvatarSettingsDialog/useServerAvatar", false);
 		this->settings->setValue("AvatarSettingsDialog/serverAvatarURL", QString());
 		this->settings->setValue("avatarPath", this->avatarSelectWidget->filename());
-
-		const std::string path = QtUtils::toStdString(this->avatarSelectWidget->filename());
-		if(!path.empty())
-		{
-			custom_avatar_paths.erase(std::remove(custom_avatar_paths.begin(), custom_avatar_paths.end(), path), custom_avatar_paths.end());
-			custom_avatar_paths.insert(custom_avatar_paths.begin(), path);
-			if(custom_avatar_paths.size() > 10)
-				custom_avatar_paths.resize(10);
-			saveCustomAvatarPaths();
-		}
 	}
 }
 
@@ -209,8 +205,6 @@ void AvatarSettingsDialog::avatarTabChanged(int index)
 		this->use_server_avatar_selection = true;
 		if(this->serverAvatarListWidget->currentItem())
 			serverAvatarSelected(this->serverAvatarListWidget->currentItem());
-		else
-			refreshServerAvatarThumbnail();
 	}
 }
 
@@ -233,17 +227,13 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 
 	if(download_queue)
 		download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 1.f);
-
-	refreshServerAvatarThumbnail();
 }
 
 
-void AvatarSettingsDialog::customAvatarSelected(QListWidgetItem* item)
+void AvatarSettingsDialog::serverAvatarSearchChanged(const QString& text)
 {
-	if(item == NULL)
-		return;
-
-	this->avatarSelectWidget->setFilename(item->text());
+	this->server_avatar_filter = text;
+	refreshServerAvatarList();
 }
 
 
@@ -419,69 +409,27 @@ void AvatarSettingsDialog::timerEvent(QTimerEvent* event)
 			loadModelIntoPreview(QtUtils::toStdString(path), /*show_error_dialogs=*/false);
 		done_initial_load = true;
 	}
-
-	static int tick_count = 0;
-	tick_count++;
-	if((tick_count % 50) == 0)
-	{
-		refreshServerAvatarList();
-		refreshServerAvatarThumbnail();
-	}
-}
-
-
-std::string AvatarSettingsDialog::customAvatarSettingsKey() const
-{
-	std::string key_username = logged_in_username.empty() ? "anonymous" : logged_in_username;
-	for(size_t i=0; i<key_username.size(); ++i)
-		if(!::isAlphaNumeric(key_username[i]))
-			key_username[i] = '_';
-
-	return "AvatarSettingsDialog/customAvatarPaths/" + key_username;
-}
-
-
-void AvatarSettingsDialog::loadCustomAvatarPaths()
-{
-	custom_avatar_paths.clear();
-	this->customAvatarListWidget->clear();
-
-	const QStringList paths = settings->value(QtUtils::toQString(customAvatarSettingsKey())).toStringList();
-	for(int i=0; i<paths.size(); ++i)
-	{
-		const std::string path = QtUtils::toStdString(paths[i]);
-		if(FileUtils::fileExists(path))
-		{
-			custom_avatar_paths.push_back(path);
-			this->customAvatarListWidget->addItem(paths[i]);
-		}
-	}
-}
-
-
-void AvatarSettingsDialog::saveCustomAvatarPaths()
-{
-	QStringList paths;
-	for(size_t i=0; i<custom_avatar_paths.size(); ++i)
-		paths.push_back(QtUtils::toQString(custom_avatar_paths[i]));
-
-	settings->setValue(QtUtils::toQString(customAvatarSettingsKey()), paths);
-
-	this->customAvatarListWidget->clear();
-	for(size_t i=0; i<custom_avatar_paths.size(); ++i)
-		this->customAvatarListWidget->addItem(QtUtils::toQString(custom_avatar_paths[i]));
 }
 
 
 void AvatarSettingsDialog::refreshServerAvatarList()
 {
 	const URLString selected_url = this->selected_server_avatar_URL;
+	const QString filter = this->server_avatar_filter.trimmed().toLower();
 
 	this->serverAvatarListWidget->clear();
 	for(size_t i=0; i<server_avatar_library.size(); ++i)
 	{
+		if(!filter.isEmpty())
+		{
+			const QString display_name = QtUtils::toQString(server_avatar_library[i].display_name).toLower();
+			if(!display_name.contains(filter))
+				continue;
+		}
+
 		QListWidgetItem* item = new QListWidgetItem(QtUtils::toQString(server_avatar_library[i].display_name));
 		item->setData(Qt::UserRole, (int)i);
+		item->setTextAlignment(Qt::AlignHCenter);
 
 		if(!server_avatar_library[i].thumbnail_URL.empty())
 		{
@@ -508,45 +456,4 @@ void AvatarSettingsDialog::refreshServerAvatarList()
 			break;
 		}
 	}
-}
-
-
-void AvatarSettingsDialog::refreshServerAvatarThumbnail()
-{
-	if(this->serverAvatarListWidget->currentItem() == NULL)
-	{
-		this->serverAvatarThumbLabel->setText("Select a server avatar.");
-		this->serverAvatarThumbLabel->setPixmap(QPixmap());
-		return;
-	}
-
-	const int entry_i = this->serverAvatarListWidget->currentItem()->data(Qt::UserRole).toInt();
-	if(entry_i < 0 || entry_i >= (int)server_avatar_library.size())
-		return;
-
-	const URLString thumb_URL = server_avatar_library[entry_i].thumbnail_URL;
-	if(thumb_URL.empty())
-	{
-		this->serverAvatarThumbLabel->setText("No thumbnail available for this avatar.");
-		this->serverAvatarThumbLabel->setPixmap(QPixmap());
-		return;
-	}
-
-	if(resource_manager->isFileForURLPresent(thumb_URL))
-	{
-		const std::string thumb_path = resource_manager->pathForURL(thumb_URL);
-		QPixmap pixmap(QtUtils::toQString(thumb_path));
-		if(!pixmap.isNull())
-		{
-			this->serverAvatarThumbLabel->setPixmap(pixmap.scaled(256, 256, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-			this->serverAvatarThumbLabel->setText("");
-			return;
-		}
-	}
-
-	if(download_queue)
-		download_queue->enqueueOrUpdateItem(thumb_URL, Vec4f(0, 0, 0, 1), 1.f);
-
-	this->serverAvatarThumbLabel->setText("Downloading thumbnail...");
-	this->serverAvatarThumbLabel->setPixmap(QPixmap());
 }

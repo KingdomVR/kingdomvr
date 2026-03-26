@@ -44,33 +44,14 @@
           </attribute>
           <layout class="QVBoxLayout" name="verticalLayout_serverTab">
            <item>
-            <widget class="QLabel" name="serverAvatarHelpLabel">
-             <property name="text">
-              <string>Select a server-provided avatar. Thumbnails are shown for fast browsing.</string>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
+              <widget class="QLineEdit" name="serverAvatarSearchLineEdit">
+               <property name="placeholderText">
+                <string>Search avatars...</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QListWidget" name="serverAvatarListWidget"/>
-           </item>
-           <item>
-            <widget class="QLabel" name="serverAvatarThumbLabel">
-             <property name="minimumSize">
-              <size>
-            <width>256</width>
-            <height>256</height>
-              </size>
-             </property>
-             <property name="alignment">
-              <set>Qt::AlignCenter</set>
-             </property>
-             <property name="text">
-              <string>Select a server avatar.</string>
-             </property>
-            </widget>
            </item>
           </layout>
          </widget>
@@ -92,16 +73,6 @@
               <widget class="FileSelectWidget" name="avatarSelectWidget"/>
              </item>
             </layout>
-           </item>
-           <item>
-            <widget class="QLabel" name="customAvatarHelpLabel">
-             <property name="text">
-              <string>Recently used custom avatars (max 10):</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QListWidget" name="customAvatarListWidget"/>
            </item>
           </layout>
          </widget>

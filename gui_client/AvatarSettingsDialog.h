@@ -54,7 +54,7 @@ private slots:;
 	void avatarFilenameChanged(QString& filename);
 	void avatarTabChanged(int index);
 	void serverAvatarSelected(QListWidgetItem* item);
-	void customAvatarSelected(QListWidgetItem* item);
+	void serverAvatarSearchChanged(const QString& text);
 
 	void animationComboBoxIndexChanged(int index);
 	
@@ -64,10 +64,6 @@ private:
 
 	void loadModelIntoPreview(const std::string& local_path, bool show_error_dialogs);
 	void refreshServerAvatarList();
-	void loadCustomAvatarPaths();
-	void saveCustomAvatarPaths();
-	void refreshServerAvatarThumbnail();
-	std::string customAvatarSettingsKey() const;
 
 	void shutdownGL();
 
@@ -95,7 +91,7 @@ public:
 	std::string logged_in_username;
 	DownloadingResourceQueue* download_queue;
 	std::vector<AvatarLibraryEntry> server_avatar_library;
-	std::vector<std::string> custom_avatar_paths;
+	QString server_avatar_filter;
 
 public:
 	bool use_server_avatar_selection;
