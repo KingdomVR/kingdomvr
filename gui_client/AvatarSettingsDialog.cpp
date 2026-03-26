@@ -108,7 +108,7 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 		}
 
 		if(this->serverAvatarListWidget->currentItem())
-			serverAvatarSelected(this->serverAvatarListWidget->currentItem());
+			this->selected_server_avatar_URL = server_avatar_library[this->serverAvatarListWidget->currentItem()->data(Qt::UserRole).toInt()].model_URL;
 	}
 	else
 	{
@@ -168,6 +168,14 @@ void AvatarSettingsDialog::accepted()
 		this->settings->setValue("AvatarSettingsDialog/useServerAvatar", true);
 		this->settings->setValue("AvatarSettingsDialog/serverAvatarURL", QtUtils::toQString(toStdString(this->selected_server_avatar_URL)));
 		this->settings->setValue("avatarPath", QString());
+
+		if(!this->selected_server_avatar_URL.empty() && resource_manager->isFileForURLPresent(this->selected_server_avatar_URL))
+		{
+			this->result_path = resource_manager->pathForURL(this->selected_server_avatar_URL);
+
+			if(avatarPreviewGLWidget->opengl_engine.nonNull() && avatarPreviewGLWidget->opengl_engine->initSucceeded())
+				loadModelIntoPreview(this->result_path, /*show_error_dialogs=*/false);
+		}
 	}
 	else
 	{
@@ -210,10 +218,7 @@ void AvatarSettingsDialog::avatarTabChanged(int index)
 	if(server_tab)
 	{
 		this->use_server_avatar_selection = true;
-		if(this->serverAvatarListWidget->currentItem())
-			serverAvatarSelected(this->serverAvatarListWidget->currentItem());
-		else
-			refreshServerAvatarThumbnail();
+		refreshServerAvatarThumbnail();
 	}
 }
 
@@ -256,11 +261,7 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 	}
 
 	if(resource_manager->isFileForURLPresent(server_avatar_library[entry_i].model_URL))
-	{
-		const std::string local_path = resource_manager->pathForURL(server_avatar_library[entry_i].model_URL);
-		this->result_path = local_path;
-		loadModelIntoPreview(local_path, /*show_error_dialogs=*/false);
-	}
+		this->result_path = resource_manager->pathForURL(server_avatar_library[entry_i].model_URL);
 
 	refreshServerAvatarThumbnail();
 }
