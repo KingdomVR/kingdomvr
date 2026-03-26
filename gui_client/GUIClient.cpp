@@ -3131,8 +3131,8 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 
 		bool added_opengl_ob = false;
 
-		WorldObject::GetLODModelURLOptions options(/*get_optimised_mesh=*/this->server_has_optimised_meshes, this->server_opt_mesh_version);
-		const URLString lod_model_url = avatar_is_default_model ? DEFAULT_AVATAR_MODEL_URL : WorldObject::getLODModelURLForLevel(avatar->avatar_settings.model_url, ob_model_lod_level, options);
+		Avatar::GetLODModelURLOptions options(/*get_optimised_mesh=*/this->server_has_optimised_meshes, this->server_opt_mesh_version);
+		const URLString lod_model_url = avatar_is_default_model ? DEFAULT_AVATAR_MODEL_URL : avatar->getLODModelURLForLevel(avatar->avatar_settings.model_url, ob_model_lod_level, options);
 
 		avatar->graphics.loaded_lod_level = ob_lod_level;
 

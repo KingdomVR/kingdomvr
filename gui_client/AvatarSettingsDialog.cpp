@@ -35,6 +35,7 @@ Copyright Glare Technologies Limited 2022 -
 #include <QtCore/QTimer>
 #include <QtCore/Qt>
 #include <QtGui/QIcon>
+#include <QtGui/QPixmap>
 #include <algorithm>
 
 
@@ -71,15 +72,14 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 		this->avatarSelectWidget->setFilename(settings->value("avatarPath").toString());
 	}
 
-	this->serverAvatarListWidget->setViewMode(QListWidget::IconMode);
-	this->serverAvatarListWidget->setIconSize(QSize(160, 160));
-	this->serverAvatarListWidget->setGridSize(QSize(188, 210));
-	this->serverAvatarListWidget->setSpacing(8);
+	this->serverAvatarListWidget->setViewMode(QListWidget::ListMode);
+	this->serverAvatarListWidget->setIconSize(QSize(1, 1));
+	this->serverAvatarListWidget->setSpacing(2);
 	this->serverAvatarListWidget->setResizeMode(QListWidget::Adjust);
 	this->serverAvatarListWidget->setMovement(QListView::Static);
-	this->serverAvatarListWidget->setUniformItemSizes(true);
-	this->serverAvatarListWidget->setWrapping(true);
-	this->serverAvatarListWidget->setWordWrap(true);
+	this->serverAvatarListWidget->setUniformItemSizes(false);
+	this->serverAvatarListWidget->setWrapping(false);
+	this->serverAvatarListWidget->setWordWrap(false);
 
 	const bool use_server_avatar = settings->value("AvatarSettingsDialog/useServerAvatar", false).toBool();
 	{
@@ -106,6 +106,10 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 
 		if(this->serverAvatarListWidget->currentItem())
 			serverAvatarSelected(this->serverAvatarListWidget->currentItem());
+	}
+	else
+	{
+		refreshServerAvatarThumbnail();
 	}
 
 	connect(this->avatarSelectWidget, SIGNAL(filenameChanged(QString&)), this, SLOT(avatarFilenameChanged(QString&)));
@@ -205,6 +209,8 @@ void AvatarSettingsDialog::avatarTabChanged(int index)
 		this->use_server_avatar_selection = true;
 		if(this->serverAvatarListWidget->currentItem())
 			serverAvatarSelected(this->serverAvatarListWidget->currentItem());
+		else
+			refreshServerAvatarThumbnail();
 	}
 }
 
@@ -227,6 +233,8 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 
 	if(download_queue)
 		download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 0.001f);
+
+	refreshServerAvatarThumbnail();
 }
 
 
@@ -234,6 +242,7 @@ void AvatarSettingsDialog::serverAvatarSearchChanged(const QString& text)
 {
 	this->server_avatar_filter = text;
 	refreshServerAvatarList();
+	refreshServerAvatarThumbnail();
 }
 
 
@@ -429,19 +438,9 @@ void AvatarSettingsDialog::refreshServerAvatarList()
 
 		QListWidgetItem* item = new QListWidgetItem(QtUtils::toQString(server_avatar_library[i].display_name));
 		item->setData(Qt::UserRole, (int)i);
-		item->setTextAlignment(Qt::AlignHCenter);
 
-		if(!server_avatar_library[i].thumbnail_URL.empty())
-		{
-			if(resource_manager->isFileForURLPresent(server_avatar_library[i].thumbnail_URL))
-			{
-				const std::string thumb_path = resource_manager->pathForURL(server_avatar_library[i].thumbnail_URL);
-				if(FileUtils::fileExists(thumb_path))
-					item->setIcon(QIcon(QtUtils::toQString(thumb_path)));
-			}
-			else if(download_queue)
-				download_queue->enqueueOrUpdateItem(server_avatar_library[i].thumbnail_URL, Vec4f(0, 0, 0, 1), 1.f);
-		}
+		if(!server_avatar_library[i].thumbnail_URL.empty() && !resource_manager->isFileForURLPresent(server_avatar_library[i].thumbnail_URL) && download_queue)
+			download_queue->enqueueOrUpdateItem(server_avatar_library[i].thumbnail_URL, Vec4f(0, 0, 0, 1), 1.f);
 
 		this->serverAvatarListWidget->addItem(item);
 	}
@@ -456,4 +455,49 @@ void AvatarSettingsDialog::refreshServerAvatarList()
 			break;
 		}
 	}
+}
+
+
+void AvatarSettingsDialog::refreshServerAvatarThumbnail()
+{
+	if(this->serverAvatarListWidget->currentItem() == NULL)
+	{
+		this->serverAvatarThumbLabel->setText("Select a server avatar");
+		this->serverAvatarThumbLabel->setPixmap(QPixmap());
+		return;
+	}
+
+	const int entry_i = this->serverAvatarListWidget->currentItem()->data(Qt::UserRole).toInt();
+	if(entry_i < 0 || entry_i >= (int)server_avatar_library.size())
+	{
+		this->serverAvatarThumbLabel->setText("Select a server avatar");
+		this->serverAvatarThumbLabel->setPixmap(QPixmap());
+		return;
+	}
+
+	const URLString thumb_url = server_avatar_library[entry_i].thumbnail_URL;
+	if(thumb_url.empty())
+	{
+		this->serverAvatarThumbLabel->setText("No thumbnail");
+		this->serverAvatarThumbLabel->setPixmap(QPixmap());
+		return;
+	}
+
+	if(download_queue && !resource_manager->isFileForURLPresent(thumb_url))
+		download_queue->enqueueOrUpdateItem(thumb_url, Vec4f(0, 0, 0, 1), 0.001f);
+
+	if(resource_manager->isFileForURLPresent(thumb_url))
+	{
+		const std::string thumb_path = resource_manager->pathForURL(thumb_url);
+		QPixmap thumb(QtUtils::toQString(thumb_path));
+		if(!thumb.isNull())
+		{
+			this->serverAvatarThumbLabel->setPixmap(thumb.scaled(this->serverAvatarThumbLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+			this->serverAvatarThumbLabel->setText("");
+			return;
+		}
+	}
+
+	this->serverAvatarThumbLabel->setText("Loading thumbnail...");
+	this->serverAvatarThumbLabel->setPixmap(QPixmap());
 }

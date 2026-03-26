@@ -51,7 +51,34 @@
             </widget>
            </item>
            <item>
-            <widget class="QListWidget" name="serverAvatarListWidget"/>
+            <layout class="QHBoxLayout" name="horizontalLayoutServerAvatarTab">
+             <item>
+              <widget class="QListWidget" name="serverAvatarListWidget">
+              <property name="minimumSize">
+               <size>
+                <width>260</width>
+                <height>420</height>
+               </size>
+              </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="serverAvatarThumbLabel">
+              <property name="minimumSize">
+               <size>
+                <width>420</width>
+                <height>420</height>
+               </size>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignCenter</set>
+              </property>
+              <property name="text">
+               <string>Select a server avatar</string>
+              </property>
+              </widget>
+             </item>
+            </layout>
            </item>
           </layout>
          </widget>
