@@ -279,9 +279,9 @@ static std::vector<ServerAvatarLibraryEntry> loadAvatarLibraryManifest(const std
 		parser.parseLine(thumbnail_url);
 
 		ServerAvatarLibraryEntry entry;
-		entry.display_name = toString(display_name);
-		entry.model_URL = toURLString(toString(model_url));
-		entry.thumbnail_URL = toURLString(toString(thumbnail_url));
+		entry.display_name = stripHeadAndTailWhitespace(toString(display_name));
+		entry.model_URL = toURLString(stripHeadAndTailWhitespace(toString(model_url)));
+		entry.thumbnail_URL = toURLString(stripHeadAndTailWhitespace(toString(thumbnail_url)));
 		entries.push_back(entry);
 	}
 

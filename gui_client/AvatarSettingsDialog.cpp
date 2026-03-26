@@ -226,7 +226,7 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 	this->pre_ob_to_world_matrix = Matrix4f::identity();
 
 	if(download_queue)
-		download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 1.f);
+		download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 0.001f);
 }
 
 

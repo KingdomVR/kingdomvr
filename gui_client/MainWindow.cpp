@@ -1552,6 +1552,31 @@ static void preloadAvatarThumbnails(Reference<ResourceManager> resource_manager,
 }
 
 
+static void preloadAvatarModelIfNeeded(Reference<ResourceManager> resource_manager, DownloadingResourceQueue& download_queue,
+	const URLString& model_URL, QWidget* parent)
+{
+	if(model_URL.empty() || resource_manager->isFileForURLPresent(model_URL))
+		return;
+
+	download_queue.enqueueOrUpdateItem(model_URL, Vec4f(0, 0, 0, 1), 0.001f);
+
+	QProgressDialog progress("Downloading selected avatar...", "Continue", 0, 1, parent);
+	progress.setWindowModality(Qt::WindowModal);
+	progress.setMinimumDuration(0);
+
+	while(!resource_manager->isFileForURLPresent(model_URL) && !resource_manager->isInDownloadFailedURLs(model_URL))
+	{
+		QCoreApplication::processEvents(QEventLoop::AllEvents, 30);
+		if(progress.wasCanceled())
+			break;
+
+		PlatformUtils::Sleep(10);
+	}
+
+	progress.setValue(1);
+}
+
+
 void MainWindow::on_actionAvatarSettings_triggered()
 {
 	std::vector<AvatarSettingsDialog::AvatarLibraryEntry> server_avatar_library;
@@ -1578,6 +1603,7 @@ void MainWindow::on_actionAvatarSettings_triggered()
 		{
 			if(dialog.use_server_avatar_selection && !dialog.selected_server_avatar_URL.empty())
 			{
+				preloadAvatarModelIfNeeded(gui_client.resource_manager, gui_client.download_queue, dialog.selected_server_avatar_URL, this);
 				gui_client.setOurAvatarModelURL(dialog.selected_server_avatar_URL);
 			}
 			else if(dialog.loaded_mesh.nonNull())
