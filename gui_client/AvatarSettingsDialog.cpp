@@ -31,6 +31,9 @@ Copyright Glare Technologies Limited 2022 -
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QListWidgetItem>
 #include <QtWidgets/QLineEdit>
+#include <QtWidgets/QProgressDialog>
+#include <QtCore/QCoreApplication>
+#include <QtCore/QEventLoop>
 #include <QtCore/QSettings>
 #include <QtCore/QTimer>
 #include <QtCore/Qt>
@@ -231,8 +234,33 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 	this->loaded_materials.clear();
 	this->pre_ob_to_world_matrix = Matrix4f::identity();
 
-	if(download_queue)
-		download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 0.001f);
+	if(!resource_manager->isFileForURLPresent(server_avatar_library[entry_i].model_URL))
+	{
+		if(download_queue)
+			download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 0.001f);
+
+		QProgressDialog progress("Downloading selected avatar...", "Continue", 0, 1, this);
+		progress.setWindowModality(Qt::WindowModal);
+		progress.setMinimumDuration(0);
+
+		while(!resource_manager->isFileForURLPresent(server_avatar_library[entry_i].model_URL) && !resource_manager->isInDownloadFailedURLs(server_avatar_library[entry_i].model_URL))
+		{
+			QCoreApplication::processEvents(QEventLoop::AllEvents, 30);
+			if(progress.wasCanceled())
+				break;
+
+			PlatformUtils::Sleep(10);
+		}
+
+		progress.setValue(1);
+	}
+
+	if(resource_manager->isFileForURLPresent(server_avatar_library[entry_i].model_URL))
+	{
+		const std::string local_path = resource_manager->pathForURL(server_avatar_library[entry_i].model_URL);
+		this->result_path = local_path;
+		loadModelIntoPreview(local_path, /*show_error_dialogs=*/false);
+	}
 
 	refreshServerAvatarThumbnail();
 }
