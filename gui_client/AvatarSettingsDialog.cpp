@@ -306,8 +306,18 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 	{
 		this->result_path = resource_manager->pathForURL(server_avatar_library[entry_i].model_URL);
 
+		const bool was_preview_visible = this->avatarPreviewGLWidget->isVisible();
+		if(!was_preview_visible)
+		{
+			this->avatarPreviewGLWidget->setVisible(true);
+			QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+		}
+
 		if(ensurePreviewWidgetInitialised())
 			loadModelIntoPreview(this->result_path, /*show_error_dialogs=*/false);
+
+		if(!was_preview_visible && this->avatarTabWidget->currentIndex() == 0)
+			this->avatarPreviewGLWidget->setVisible(false);
 	}
 
 	refreshServerAvatarThumbnail();
@@ -455,6 +465,7 @@ void AvatarSettingsDialog::loadModelIntoPreview(const std::string& local_path, b
 	catch(Indigo::IndigoException& e)
 	{
 		this->loaded_mesh = NULL;
+		conPrint(std::string("AvatarSettingsDialog: failed to process avatar '") + use_local_path + "': " + e.what());
 
 		if(show_error_dialogs)
 			QtUtils::showErrorMessageDialog(QtUtils::toQString(e.what()), this);
@@ -462,6 +473,7 @@ void AvatarSettingsDialog::loadModelIntoPreview(const std::string& local_path, b
 	catch(glare::Exception& e)
 	{
 		this->loaded_mesh = NULL;
+		conPrint(std::string("AvatarSettingsDialog: failed to process avatar '") + use_local_path + "': " + e.what());
 
 		if(show_error_dialogs)
 			QtUtils::showErrorMessageDialog(QtUtils::toQString(e.what()), this);
