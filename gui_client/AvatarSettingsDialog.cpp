@@ -119,6 +119,12 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 	connect(this->avatarSelectWidget, SIGNAL(filenameChanged(QString&)), this, SLOT(avatarFilenameChanged(QString&)));
 	connect(this->avatarTabWidget, SIGNAL(currentChanged(int)), this, SLOT(avatarTabChanged(int)));
 	connect(this->serverAvatarListWidget, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(serverAvatarSelected(QListWidgetItem*)));
+	connect(this->serverAvatarListWidget, &QListWidget::currentItemChanged, this,
+		[this](QListWidgetItem* current, QListWidgetItem*)
+		{
+			serverAvatarSelected(current);
+		}
+	);
 	connect(this->serverAvatarSearchLineEdit, SIGNAL(textChanged(const QString&)), this, SLOT(serverAvatarSearchChanged(const QString&)));
 	connect(this->buttonBox, SIGNAL(accepted()), this, SLOT(accepted()));
 	connect(this, SIGNAL(finished(int)), this, SLOT(dialogFinished()));
@@ -165,6 +171,9 @@ void AvatarSettingsDialog::accepted()
 {
 	if(this->avatarTabWidget->currentIndex() == 0)
 	{
+		if(this->loaded_mesh.isNull() && this->serverAvatarListWidget->currentItem() != NULL)
+			serverAvatarSelected(this->serverAvatarListWidget->currentItem());
+
 		this->use_server_avatar_selection = true;
 		this->settings->setValue("AvatarSettingsDialog/useServerAvatar", true);
 		this->settings->setValue("AvatarSettingsDialog/serverAvatarURL", QtUtils::toQString(toStdString(this->selected_server_avatar_URL)));
@@ -271,16 +280,20 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 	if(!resource_manager->isFileForURLPresent(server_avatar_library[entry_i].model_URL))
 	{
 		if(download_queue)
-			download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 0.001f);
+			download_queue->enqueueOrUpdateItem(server_avatar_library[entry_i].model_URL, Vec4f(0, 0, 0, 1), 100.f);
 
 		QProgressDialog progress("Downloading selected avatar...", "Continue", 0, 1, this);
 		progress.setWindowModality(Qt::WindowModal);
 		progress.setMinimumDuration(0);
+		progress.setCancelButton(NULL);
+
+		QElapsedTimer timer;
+		timer.start();
 
 		while(!resource_manager->isFileForURLPresent(server_avatar_library[entry_i].model_URL) && !resource_manager->isInDownloadFailedURLs(server_avatar_library[entry_i].model_URL))
 		{
 			QCoreApplication::processEvents(QEventLoop::AllEvents, 30);
-			if(progress.wasCanceled())
+			if(timer.elapsed() > 15000)
 				break;
 
 			PlatformUtils::Sleep(10);
