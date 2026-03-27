@@ -1603,12 +1603,10 @@ void MainWindow::on_actionAvatarSettings_triggered()
 		{
 			if(dialog.use_server_avatar_selection && !dialog.selected_server_avatar_URL.empty())
 			{
-				preloadAvatarModelIfNeeded(gui_client.resource_manager, gui_client.download_queue, dialog.selected_server_avatar_URL, this);
-
 				if(dialog.loaded_mesh.nonNull())
 					gui_client.updateOurAvatarModel(dialog.loaded_mesh, dialog.result_path, dialog.pre_ob_to_world_matrix, dialog.loaded_materials);
 				else
-					gui_client.setOurAvatarModelURL(dialog.selected_server_avatar_URL);
+					throw glare::Exception("Selected server avatar was not fully processed. Please wait for download/processing to finish and try again.");
 			}
 			else if(dialog.loaded_mesh.nonNull())
 			{

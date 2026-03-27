@@ -109,7 +109,7 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 		}
 
 		if(this->serverAvatarListWidget->currentItem())
-			this->selected_server_avatar_URL = server_avatar_library[this->serverAvatarListWidget->currentItem()->data(Qt::UserRole).toInt()].model_URL;
+			serverAvatarSelected(this->serverAvatarListWidget->currentItem());
 	}
 	else
 	{
@@ -170,19 +170,11 @@ void AvatarSettingsDialog::accepted()
 		this->settings->setValue("AvatarSettingsDialog/serverAvatarURL", QtUtils::toQString(toStdString(this->selected_server_avatar_URL)));
 		this->settings->setValue("avatarPath", QString());
 
-		if(!this->selected_server_avatar_URL.empty() && resource_manager->isFileForURLPresent(this->selected_server_avatar_URL))
+		if(this->loaded_mesh.nonNull())
 		{
-			this->result_path = resource_manager->pathForURL(this->selected_server_avatar_URL);
-
-			if(ensurePreviewWidgetInitialised())
-				loadModelIntoPreview(this->result_path, /*show_error_dialogs=*/false);
-
-			if(this->loaded_mesh.nonNull())
-			{
-				// Prefer custom-avatar apply path: this preserves orientation/material handling used by local uploads.
-				this->use_server_avatar_selection = false;
-				this->settings->setValue("avatarPath", QtUtils::toQString(this->result_path));
-			}
+			// Prefer custom-avatar apply path: this preserves orientation/material handling used by local uploads.
+			this->use_server_avatar_selection = false;
+			this->settings->setValue("avatarPath", QtUtils::toQString(this->result_path));
 		}
 	}
 	else
@@ -298,7 +290,12 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 	}
 
 	if(resource_manager->isFileForURLPresent(server_avatar_library[entry_i].model_URL))
+	{
 		this->result_path = resource_manager->pathForURL(server_avatar_library[entry_i].model_URL);
+
+		if(ensurePreviewWidgetInitialised())
+			loadModelIntoPreview(this->result_path, /*show_error_dialogs=*/false);
+	}
 
 	refreshServerAvatarThumbnail();
 }
