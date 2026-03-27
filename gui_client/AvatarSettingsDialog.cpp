@@ -473,7 +473,7 @@ void AvatarSettingsDialog::loadModelIntoPreview(const std::string& local_path, b
 	catch(glare::Exception& e)
 	{
 		this->loaded_mesh = NULL;
-		conPrint(std::string("AvatarSettingsDialog: failed to process avatar '") + use_local_path + "': " + toStdString(e.what()));
+		conPrint(std::string("AvatarSettingsDialog: failed to process avatar '") + use_local_path + "': " + e.what());
 
 		if(show_error_dialogs)
 			QtUtils::showErrorMessageDialog(QtUtils::toQString(e.what()), this);
