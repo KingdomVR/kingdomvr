@@ -34,6 +34,7 @@ Copyright Glare Technologies Limited 2022 -
 #include <QtWidgets/QProgressDialog>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QEventLoop>
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QSettings>
 #include <QtCore/QTimer>
 #include <QtCore/Qt>
@@ -173,8 +174,15 @@ void AvatarSettingsDialog::accepted()
 		{
 			this->result_path = resource_manager->pathForURL(this->selected_server_avatar_URL);
 
-			if(avatarPreviewGLWidget->opengl_engine.nonNull() && avatarPreviewGLWidget->opengl_engine->initSucceeded())
+			if(ensurePreviewWidgetInitialised())
 				loadModelIntoPreview(this->result_path, /*show_error_dialogs=*/false);
+
+			if(this->loaded_mesh.nonNull())
+			{
+				// Prefer custom-avatar apply path: this preserves orientation/material handling used by local uploads.
+				this->use_server_avatar_selection = false;
+				this->settings->setValue("avatarPath", QtUtils::toQString(this->result_path));
+			}
 		}
 	}
 	else
@@ -184,6 +192,35 @@ void AvatarSettingsDialog::accepted()
 		this->settings->setValue("AvatarSettingsDialog/serverAvatarURL", QString());
 		this->settings->setValue("avatarPath", this->avatarSelectWidget->filename());
 	}
+}
+
+
+bool AvatarSettingsDialog::ensurePreviewWidgetInitialised()
+{
+	if(avatarPreviewGLWidget->opengl_engine.nonNull() && avatarPreviewGLWidget->opengl_engine->initSucceeded())
+		return true;
+
+	QElapsedTimer timer;
+	timer.start();
+
+	while(timer.elapsed() < 2000)
+	{
+		avatarPreviewGLWidget->makeCurrent();
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+		avatarPreviewGLWidget->update();
+#else
+		avatarPreviewGLWidget->updateGL();
+#endif
+
+		QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+
+		if(avatarPreviewGLWidget->opengl_engine.nonNull() && avatarPreviewGLWidget->opengl_engine->initSucceeded())
+			return true;
+
+		PlatformUtils::Sleep(5);
+	}
+
+	return avatarPreviewGLWidget->opengl_engine.nonNull() && avatarPreviewGLWidget->opengl_engine->initSucceeded();
 }
 
 

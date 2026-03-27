@@ -65,6 +65,7 @@ private:
 	void loadModelIntoPreview(const std::string& local_path, bool show_error_dialogs);
 	void refreshServerAvatarList();
 	void refreshServerAvatarThumbnail();
+	bool ensurePreviewWidgetInitialised();
 
 	void shutdownGL();
 
