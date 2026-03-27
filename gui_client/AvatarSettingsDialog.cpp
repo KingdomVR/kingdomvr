@@ -189,7 +189,7 @@ void AvatarSettingsDialog::accepted()
 			return;
 		}
 
-		QtUtils::showErrorMessageDialog("Avatar download finished but processing did not complete. Please wait a moment and try again.", this);
+		QtUtils::showErrorMessageDialog(QStringLiteral("Avatar download finished but processing did not complete. Please wait a moment and try again."), this);
 		return;
 	}
 	else
