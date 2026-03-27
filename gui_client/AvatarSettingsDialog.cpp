@@ -126,6 +126,7 @@ AvatarSettingsDialog::AvatarSettingsDialog(const std::string& base_dir_path_, QS
 		}
 	);
 	connect(this->serverAvatarSearchLineEdit, SIGNAL(textChanged(const QString&)), this, SLOT(serverAvatarSearchChanged(const QString&)));
+	disconnect(this->buttonBox, SIGNAL(accepted()), this, SLOT(accept()));
 	connect(this->buttonBox, SIGNAL(accepted()), this, SLOT(accepted()));
 	connect(this, SIGNAL(finished(int)), this, SLOT(dialogFinished()));
 
@@ -184,7 +185,12 @@ void AvatarSettingsDialog::accepted()
 			// Prefer custom-avatar apply path: this preserves orientation/material handling used by local uploads.
 			this->use_server_avatar_selection = false;
 			this->settings->setValue("avatarPath", QtUtils::toQString(this->result_path));
+			QDialog::accept();
+			return;
 		}
+
+		QtUtils::showErrorMessageDialog("Avatar download finished but processing did not complete. Please wait a moment and try again.", this);
+		return;
 	}
 	else
 	{
@@ -192,6 +198,8 @@ void AvatarSettingsDialog::accepted()
 		this->settings->setValue("AvatarSettingsDialog/useServerAvatar", false);
 		this->settings->setValue("AvatarSettingsDialog/serverAvatarURL", QString());
 		this->settings->setValue("avatarPath", this->avatarSelectWidget->filename());
+		QDialog::accept();
+		return;
 	}
 }
 
