@@ -7859,6 +7859,11 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 						}
 					} // End if reload_opengl_model
 
+					// If avatar model isn't present yet (common right after first server-avatar apply), keep trying to load
+					// it in this session as resources arrive, instead of waiting for a world reload.
+					if((cam_controller.thirdPersonEnabled() || !our_avatar) && avatar->graphics.skinned_gl_ob.isNull())
+						loadModelForAvatar(avatar);
+
 
 					// Update transform if we have an avatar or placeholder OpenGL model.
 					Vec3d pos;

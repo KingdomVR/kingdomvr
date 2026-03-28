@@ -315,8 +315,13 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 		this->result_path = resource_manager->pathForURL(server_avatar_library[entry_i].model_URL);
 
 		const bool was_preview_visible = this->avatarPreviewGLWidget->isVisible();
+		const QRect original_preview_geom = this->avatarPreviewGLWidget->geometry();
+		const bool original_updates_enabled = this->avatarPreviewGLWidget->updatesEnabled();
 		if(!was_preview_visible)
 		{
+			// Keep GL processing path alive, but move widget offscreen to avoid a visible flash in the server tab.
+			this->avatarPreviewGLWidget->setUpdatesEnabled(false);
+			this->avatarPreviewGLWidget->setGeometry(-10000, -10000, 1, 1);
 			this->avatarPreviewGLWidget->setVisible(true);
 			QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
 		}
@@ -325,7 +330,11 @@ void AvatarSettingsDialog::serverAvatarSelected(QListWidgetItem* item)
 			loadModelIntoPreview(this->result_path, /*show_error_dialogs=*/false);
 
 		if(!was_preview_visible && this->avatarTabWidget->currentIndex() == 0)
+		{
 			this->avatarPreviewGLWidget->setVisible(false);
+			this->avatarPreviewGLWidget->setGeometry(original_preview_geom);
+			this->avatarPreviewGLWidget->setUpdatesEnabled(original_updates_enabled);
+		}
 	}
 
 	refreshServerAvatarThumbnail();
