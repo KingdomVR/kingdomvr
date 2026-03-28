@@ -1612,6 +1612,8 @@ void MainWindow::on_actionAvatarSettings_triggered()
 			{
 				gui_client.updateOurAvatarModel(dialog.loaded_mesh, dialog.result_path, dialog.pre_ob_to_world_matrix, dialog.loaded_materials);
 			}
+			else
+				print("Avatar settings accepted with no processed custom mesh; skipping apply.");
 		}
 		catch(glare::Exception& e)
 		{
