@@ -1320,7 +1320,8 @@ void GUIClient::startLoadingTextureForObjectOrAvatar(const UID& ob_uid, const UI
 	const URLString& texture_url, bool tex_has_alpha, bool use_sRGB, bool allow_compression)
 {
 	glare::ArenaFrame frame(arena_allocator);
-	const WorldMaterial::GetURLOptions get_url_options(/*use basis=*/server_has_basis_textures, /*arena allocator=*/&arena_allocator);
+	const bool use_basis_for_tex = server_has_basis_textures && !(avatar_uid.valid() && avatar_uid == this->client_avatar_uid);
+	const WorldMaterial::GetURLOptions get_url_options(/*use basis=*/use_basis_for_tex, /*arena allocator=*/&arena_allocator);
 
 	const URLString temp_lod_tex_url = world_mat.getLODTextureURLForLevel(get_url_options, texture_url, ob_lod_level, tex_has_alpha);
 
@@ -3003,8 +3004,9 @@ void GUIClient::loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const R
 
 	// Create gl and physics object now
 	glare::ArenaFrame frame(arena_allocator);
+	const bool use_basis_for_avatar = this->server_has_basis_textures && !avatar->our_avatar;
 	avatar->graphics.skinned_gl_ob = ModelLoading::makeGLObjectForMeshDataAndMaterials(*opengl_engine, mesh_data->gl_meshdata, av_lod_level, avatar->avatar_settings.materials, /*lightmap_url=*/URLString(), 
-		/*use_basis=*/this->server_has_basis_textures, *resource_manager, &arena_allocator, ob_to_world_matrix);
+		/*use_basis=*/use_basis_for_avatar, *resource_manager, &arena_allocator, ob_to_world_matrix);
 
 	mesh_data->meshDataBecameUsed();
 	avatar->mesh_data = mesh_data; // Hang on to a reference to the mesh data, so when object-uses of it are removed, it can be removed from the MeshManager with meshDataBecameUnused().
@@ -3030,7 +3032,7 @@ void GUIClient::loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const R
 
 	avatar->graphics.build(avatar->our_avatar);
 
-	assignLoadedOpenGLTexturesToAvatarMats(avatar, /*use_basis=*/this->server_has_basis_textures, *opengl_engine, *resource_manager, *animated_texture_manager, &arena_allocator);
+	assignLoadedOpenGLTexturesToAvatarMats(avatar, /*use_basis=*/use_basis_for_avatar, *opengl_engine, *resource_manager, *animated_texture_manager, &arena_allocator);
 
 	// Enable materialise effect if needed
 	const float current_time = (float)Clock::getTimeSinceInit();
@@ -9424,9 +9426,10 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 								glare::STLArenaAllocator<DependencyURL> stl_arena_allocator(&arena_allocator);
 
 								Avatar::GetDependencyOptions options;
-								options.get_optimised_mesh = this->server_has_optimised_meshes;
+								const bool this_is_our_avatar = (av->uid == this->client_avatar_uid);
+								options.get_optimised_mesh = this->server_has_optimised_meshes && !this_is_our_avatar;
 								options.opt_mesh_version = this->server_opt_mesh_version;
-								options.use_basis = this->server_has_basis_textures;
+								options.use_basis = this->server_has_basis_textures && !this_is_our_avatar;
 
 								DependencyURLSet URL_set(std::less<DependencyURL>(), stl_arena_allocator);
 								av->getDependencyURLSet(av_lod_level, options, URL_set);
