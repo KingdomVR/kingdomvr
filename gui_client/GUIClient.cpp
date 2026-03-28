@@ -1769,8 +1769,10 @@ void GUIClient::startDownloadingResourcesForAvatar(Avatar* ob, int ob_lod_level,
 	glare::STLArenaAllocator<DependencyURL> stl_arena_allocator(&arena_allocator);
 
 	Avatar::GetDependencyOptions options;
-	options.get_optimised_mesh = this->server_has_optimised_meshes;
-	options.use_basis = this->server_has_basis_textures;
+	const bool use_server_optimised_mesh = this->server_has_optimised_meshes && !our_avatar;
+	const bool use_server_basis_textures = this->server_has_basis_textures && !our_avatar;
+	options.get_optimised_mesh = use_server_optimised_mesh;
+	options.use_basis = use_server_basis_textures;
 	options.opt_mesh_version = this->server_opt_mesh_version;
 
 	DependencyURLSet dependency_URLs(std::less<DependencyURL>(), stl_arena_allocator);
@@ -3132,6 +3134,8 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 		bool added_opengl_ob = false;
 
 		Avatar::GetLODModelURLOptions options(/*get_optimised_mesh=*/this->server_has_optimised_meshes, this->server_opt_mesh_version);
+		if(our_avatar)
+			options.get_optimised_mesh = false;
 		const URLString lod_model_url = avatar_is_default_model ? DEFAULT_AVATAR_MODEL_URL : avatar->getLODModelURLForLevel(avatar->avatar_settings.model_url, ob_model_lod_level, options);
 
 		avatar->graphics.loaded_lod_level = ob_lod_level;
