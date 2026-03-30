@@ -49,6 +49,18 @@
            <string>Server Avatars</string>
           </attribute>
           <layout class="QVBoxLayout" name="verticalLayout_serverTab">
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
            <item>
               <widget class="QLineEdit" name="serverAvatarSearchLineEdit">
               <property name="sizePolicy">
@@ -76,8 +88,29 @@
            </item>
            <item>
             <layout class="QHBoxLayout" name="horizontalLayoutServerAvatarTab">
+             <property name="stretch">
+              <string>1,1</string>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
              <item>
               <widget class="QListWidget" name="serverAvatarListWidget">
+              <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
                 <width>260</width>
@@ -88,6 +121,12 @@
              </item>
              <item>
               <widget class="QLabel" name="serverAvatarThumbLabel">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                  <horstretch>1</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
               <property name="minimumSize">
                <size>
                 <width>420</width>
@@ -165,7 +204,7 @@
           <property name="minimumSize">
            <size>
             <width>0</width>
-            <height>280</height>
+          <height>360</height>
            </size>
           </property>
          </widget>

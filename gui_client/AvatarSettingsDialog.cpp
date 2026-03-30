@@ -279,6 +279,12 @@ void AvatarSettingsDialog::avatarTabChanged(int index)
 	this->animationComboBox->setVisible(!server_tab);
 	this->label->setVisible(!server_tab);
 
+	// Keep server tab roomy for list + thumbnail, but collapse extra vertical space on custom tab.
+	if(server_tab)
+		this->widget->setMaximumHeight(520);
+	else
+		this->widget->setMaximumHeight(140);
+
 	if(server_tab)
 	{
 		this->use_server_avatar_selection = true;
