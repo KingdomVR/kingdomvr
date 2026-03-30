@@ -88,9 +88,6 @@
            </item>
            <item>
             <layout class="QHBoxLayout" name="horizontalLayoutServerAvatarTab">
-             <property name="stretch">
-              <string>1,1</string>
-             </property>
              <property name="leftMargin">
               <number>0</number>
              </property>
