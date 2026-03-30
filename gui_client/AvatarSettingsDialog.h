@@ -35,13 +35,6 @@ class AvatarSettingsDialog : public QDialog, private Ui_AvatarSettingsDialog
 {
 	Q_OBJECT
 public:
-	struct CustomAvatarEntry
-	{
-		QString display_name;
-		QString local_path;
-		URLString model_URL;
-	};
-
 	struct AvatarLibraryEntry
 	{
 		std::string display_name;
@@ -62,8 +55,6 @@ private slots:;
 	void avatarTabChanged(int index);
 	void serverAvatarSelected(QListWidgetItem* item);
 	void serverAvatarSearchChanged(const QString& text);
-	void customAvatarSelected(QListWidgetItem* item);
-	void removeSelectedCustomAvatar();
 
 	void animationComboBoxIndexChanged(int index);
 	
@@ -74,12 +65,6 @@ private:
 	void loadModelIntoPreview(const std::string& local_path, bool show_error_dialogs);
 	void refreshServerAvatarList();
 	void refreshServerAvatarThumbnail();
-	void loadCustomAvatarList();
-	void refreshCustomAvatarList();
-	void appendOrMoveRecentCustomAvatar(const QString& display_name, const QString& local_path, const URLString& model_url);
-	void persistCustomAvatarList();
-	URLString buildModelURLForLoadedCustomAvatar(const std::string& local_model_path) const;
-	QString buildCachedLocalPathForLoadedCustomAvatar(const std::string& local_model_path);
 	bool ensurePreviewWidgetInitialised();
 
 	void shutdownGL();
@@ -108,16 +93,12 @@ public:
 	std::string logged_in_username;
 	DownloadingResourceQueue* download_queue;
 	std::vector<AvatarLibraryEntry> server_avatar_library;
-	std::vector<CustomAvatarEntry> custom_avatar_library;
 	QString server_avatar_filter;
 
 public:
 	bool use_server_avatar_selection;
 	URLString selected_server_avatar_URL;
 	bool processed_server_avatar_for_apply;
-
-	bool use_saved_custom_avatar_URL_selection;
-	URLString selected_saved_custom_avatar_URL;
 };
 
 #ifdef _WIN32
