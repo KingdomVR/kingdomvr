@@ -222,6 +222,11 @@ URLString Avatar::getLODModelURLForLevel(const URLString& base_model_url, int lo
 	if(hasPrefix(base_model_url, "http:") || hasPrefix(base_model_url, "https:"))
 		return base_model_url;
 
+	// Optimised LOD naming assumes bmesh output files. For non-bmesh models (for example VRM/GLB),
+	// keep requesting the base URL so clients do not request missing *_opt*.bmesh resources.
+	if(!hasExtension(base_model_url, "bmesh"))
+		return base_model_url;
+
 	return URLUtils::makeOptimisedMeshURL(base_model_url, lod_level, /*get_optimised_mesh=*/options.get_optimised_mesh, options.opt_mesh_version, /*allocator=*/nullptr);
 }
 

@@ -88,6 +88,14 @@ class SubstrataLuaVM;
 struct LoadedBuffer;
 struct AsyncUploadedGeometryInfo;
 struct PBOAsyncUploadedTextureInfo;
+
+
+struct GUIClientServerAvatarEntry
+{
+	std::string display_name;
+	URLString model_URL;
+	URLString thumbnail_URL;
+};
 class OpenGLUploadThread;
 class AnimatedTextureManager;
 class MiniMap;
@@ -433,6 +441,7 @@ public:
 	void handleUploadedTexture(const OpenGLTextureKey& path, const URLString& URL, const OpenGLTextureRef& opengl_tex, const TextureDataRef& tex_data, const Map2DRef& terrain_map);
 
 	void updateOurAvatarModel(BatchedMeshRef loaded_mesh, const std::string& local_model_path, const Matrix4f& pre_ob_to_world_matrix, const std::vector<WorldMaterialRef>& materials);
+	void setOurAvatarModelURL(const URLString& model_url);
 
 	void setObjectLoadDistance(float new_dist);
 
@@ -813,6 +822,7 @@ public:
 	std::string logged_in_user_name;
 	uint32 logged_in_user_flags;
 	AvatarSettings logged_in_avatar_settings; // Last avatar settings received from server in a LoggedInMessage.
+	std::vector<GUIClientServerAvatarEntry> server_avatar_library;
 
 	bool server_using_lod_chunks; // Should be equal to !world_state->lod_chunks.empty(), cached in a boolean.
 

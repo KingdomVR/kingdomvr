@@ -1245,6 +1245,25 @@ void ClientThread::readAndHandleMessage(const uint32 peer_protocol_version)
 			out_msg_queue->enqueue(msg);
 			break;
 		}
+	case Protocol::ServerAvatarLibraryMessage:
+		{
+			Reference<ServerAvatarLibraryMessage> msg = new ServerAvatarLibraryMessage();
+
+			const uint32 num_entries = msg_buffer.readUInt32();
+			if(num_entries > 10000)
+				throw glare::Exception("ServerAvatarLibraryMessage: too many entries: " + toString(num_entries));
+
+			msg->entries.resize(num_entries);
+			for(uint32 i=0; i<num_entries; ++i)
+			{
+				msg->entries[i].display_name = msg_buffer.readStringLengthFirst(MAX_STRING_LEN);
+				msg->entries[i].model_URL = toURLString(msg_buffer.readStringLengthFirst(MAX_STRING_LEN));
+				msg->entries[i].thumbnail_URL = toURLString(msg_buffer.readStringLengthFirst(MAX_STRING_LEN));
+			}
+
+			out_msg_queue->enqueue(msg);
+			break;
+		}
 	case Protocol::MapTilesResult:
 		{
 			Reference<MapTilesResultReceivedMessage> msg = new MapTilesResultReceivedMessage();

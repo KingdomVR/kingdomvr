@@ -945,6 +945,23 @@ void WorkerThread::sendPerWorldInitialDataToClient(ServerAllWorldsState* world_s
 		socket->writeData(scratch_packet.buf.data(), scratch_packet.buf.size());
 	}
 
+	// Send avatar library entries so clients can populate their server-avatar picker UI.
+	{
+		const std::vector<ServerAvatarLibraryEntry> entries = server->getAvatarLibraryEntriesCopy();
+
+		MessageUtils::initPacket(scratch_packet, Protocol::ServerAvatarLibraryMessage);
+		scratch_packet.writeUInt32((uint32)entries.size());
+		for(size_t i=0; i<entries.size(); ++i)
+		{
+			scratch_packet.writeStringLengthFirst(entries[i].display_name);
+			scratch_packet.writeStringLengthFirst(entries[i].model_URL);
+			scratch_packet.writeStringLengthFirst(entries[i].thumbnail_URL);
+		}
+
+		MessageUtils::updatePacketLengthField(scratch_packet);
+		socket->writeData(scratch_packet.buf.data(), scratch_packet.buf.size());
+	}
+
 
 	// Send all current avatar state data to client
 	{

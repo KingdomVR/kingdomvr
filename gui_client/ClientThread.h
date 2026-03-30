@@ -23,6 +23,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <utils/BufferInStream.h>
 #include <utils/ArrayRef.h>
 #include <string>
+#include <vector>
 class ClientSenderThread;
 class WorldState;
 class WorldObject;
@@ -218,6 +219,22 @@ class WorldDetailsReceivedMessage : public ThreadMessage
 public:
 	WorldDetailsReceivedMessage() : ThreadMessage(Msg_WorldDetailsReceivedMessage) {}
 	WorldDetails world_details;
+};
+
+
+struct ServerAvatarLibraryClientEntry
+{
+	std::string display_name;
+	URLString model_URL;
+	URLString thumbnail_URL;
+};
+
+
+class ServerAvatarLibraryMessage : public ThreadMessage
+{
+public:
+	ServerAvatarLibraryMessage() : ThreadMessage(Msg_ServerAvatarLibraryMessage) {}
+	std::vector<ServerAvatarLibraryClientEntry> entries;
 };
 
 

@@ -1323,7 +1323,8 @@ void GUIClient::startLoadingTextureForObjectOrAvatar(const UID& ob_uid, const UI
 	const URLString& texture_url, bool tex_has_alpha, bool use_sRGB, bool allow_compression)
 {
 	glare::ArenaFrame frame(arena_allocator);
-	const WorldMaterial::GetURLOptions get_url_options(/*use basis=*/server_has_basis_textures, /*arena allocator=*/&arena_allocator);
+	const bool use_basis_for_tex = server_has_basis_textures && !(avatar_uid.valid() && avatar_uid == this->client_avatar_uid);
+	const WorldMaterial::GetURLOptions get_url_options(/*use basis=*/use_basis_for_tex, /*arena allocator=*/&arena_allocator);
 
 	const URLString temp_lod_tex_url = world_mat.getLODTextureURLForLevel(get_url_options, texture_url, ob_lod_level, tex_has_alpha);
 
@@ -1772,8 +1773,10 @@ void GUIClient::startDownloadingResourcesForAvatar(Avatar* ob, int ob_lod_level,
 	glare::STLArenaAllocator<DependencyURL> stl_arena_allocator(&arena_allocator);
 
 	Avatar::GetDependencyOptions options;
-	options.get_optimised_mesh = this->server_has_optimised_meshes;
-	options.use_basis = this->server_has_basis_textures;
+	const bool use_server_optimised_mesh = this->server_has_optimised_meshes && !our_avatar;
+	const bool use_server_basis_textures = this->server_has_basis_textures && !our_avatar;
+	options.get_optimised_mesh = use_server_optimised_mesh;
+	options.use_basis = use_server_basis_textures;
 	options.opt_mesh_version = this->server_opt_mesh_version;
 
 	DependencyURLSet dependency_URLs(std::less<DependencyURL>(), stl_arena_allocator);
@@ -3010,8 +3013,9 @@ void GUIClient::loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const R
 
 	// Create gl and physics object now
 	glare::ArenaFrame frame(arena_allocator);
+	const bool use_basis_for_avatar = this->server_has_basis_textures && !avatar->our_avatar;
 	avatar->graphics.skinned_gl_ob = ModelLoading::makeGLObjectForMeshDataAndMaterials(*opengl_engine, mesh_data->gl_meshdata, av_lod_level, avatar->avatar_settings.materials, /*lightmap_url=*/URLString(), 
-		/*use_basis=*/this->server_has_basis_textures, *resource_manager, &arena_allocator, ob_to_world_matrix);
+		/*use_basis=*/use_basis_for_avatar, *resource_manager, &arena_allocator, ob_to_world_matrix);
 
 	mesh_data->meshDataBecameUsed();
 	avatar->mesh_data = mesh_data; // Hang on to a reference to the mesh data, so when object-uses of it are removed, it can be removed from the MeshManager with meshDataBecameUnused().
@@ -3037,7 +3041,7 @@ void GUIClient::loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const R
 
 	avatar->graphics.build(avatar->our_avatar);
 
-	assignLoadedOpenGLTexturesToAvatarMats(avatar, /*use_basis=*/this->server_has_basis_textures, *opengl_engine, *resource_manager, *animated_texture_manager, &arena_allocator);
+	assignLoadedOpenGLTexturesToAvatarMats(avatar, /*use_basis=*/use_basis_for_avatar, *opengl_engine, *resource_manager, *animated_texture_manager, &arena_allocator);
 
 	// Enable materialise effect if needed
 	const float current_time = (float)Clock::getTimeSinceInit();
@@ -3140,8 +3144,10 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 
 		bool added_opengl_ob = false;
 
-		WorldObject::GetLODModelURLOptions options(/*get_optimised_mesh=*/this->server_has_optimised_meshes, this->server_opt_mesh_version);
-		const URLString lod_model_url = avatar_is_default_model ? DEFAULT_AVATAR_MODEL_URL : WorldObject::getLODModelURLForLevel(avatar->avatar_settings.model_url, ob_model_lod_level, options);
+		Avatar::GetLODModelURLOptions options(/*get_optimised_mesh=*/this->server_has_optimised_meshes, this->server_opt_mesh_version);
+		if(our_avatar)
+			options.get_optimised_mesh = false;
+		const URLString lod_model_url = avatar_is_default_model ? DEFAULT_AVATAR_MODEL_URL : avatar->getLODModelURLForLevel(avatar->avatar_settings.model_url, ob_model_lod_level, options);
 
 		avatar->graphics.loaded_lod_level = ob_lod_level;
 
@@ -4669,6 +4675,29 @@ void GUIClient::updateOurAvatarModel(BatchedMeshRef loaded_mesh, const std::stri
 	showInfoNotification("Updated avatar.");
 
 	conPrint("GUIClient::updateOurAvatarModel() done.");
+}
+
+
+void GUIClient::setOurAvatarModelURL(const URLString& model_url)
+{
+	if(!logged_in_user_id.valid())
+		throw glare::Exception("You must be logged in to set your avatar model");
+
+	const Vec3d cam_angles = cam_controller.getAvatarAngles();
+	Avatar avatar;
+	avatar.uid = client_avatar_uid;
+	avatar.pos = Vec3d(cam_controller.getFirstPersonPosition());
+	avatar.rotation = Vec3f(0, (float)cam_angles.y, (float)cam_angles.x);
+	avatar.name = logged_in_user_name;
+	avatar.avatar_settings.model_url = model_url;
+	avatar.avatar_settings.pre_ob_to_world_matrix = Matrix4f::identity();
+	avatar.avatar_settings.materials.clear();
+
+	MessageUtils::initPacket(scratch_packet, Protocol::AvatarFullUpdate);
+	writeAvatarToNetworkStream(avatar, scratch_packet);
+	enqueueMessageToSend(*client_thread, scratch_packet);
+
+	showInfoNotification("Updated avatar.");
 }
 
 
@@ -7859,6 +7888,11 @@ void GUIClient::updateAvatarGraphics(double cur_time, double dt, const Vec3d& ou
 						}
 					} // End if reload_opengl_model
 
+					// If avatar model isn't present yet (common right after first server-avatar apply), keep trying to load
+					// it in this session as resources arrive, instead of waiting for a world reload.
+					if((cam_controller.thirdPersonEnabled() || !our_avatar) && avatar->graphics.skinned_gl_ob.isNull())
+						loadModelForAvatar(avatar);
+
 
 					// Update transform if we have an avatar or placeholder OpenGL model.
 					Vec3d pos;
@@ -8681,6 +8715,7 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 		case Msg_ClientConnectingToServerMessage:
 		{
 			this->connection_state = ServerConnectionState_Connecting;
+			this->server_avatar_library.clear();
 			//ui_interface->updateStatusBar();
 
 			this->server_ip_addr = checkedDowncastPtr<const ClientConnectingToServerMessage>(msg)->server_ip;
@@ -8899,6 +8934,7 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 			}
 			logMessage("Client disconnected from server " + (m->closed_gracefully ? std::string("gracefully") : std::string("ungracefully")) + ": " + m->error_message);
 			this->connection_state = ServerConnectionState_NotConnected;
+			this->server_avatar_library.clear();
 
 			this->logged_in_user_id = UserID::invalidUserID();
 			this->logged_in_user_name = "";
@@ -9261,6 +9297,22 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 			this->connected_world_details = m->world_details;
 		}
 		break;
+		case Msg_ServerAvatarLibraryMessage:
+		{
+			const ServerAvatarLibraryMessage* m = checkedDowncastPtr<const ServerAvatarLibraryMessage>(msg);
+
+			this->server_avatar_library.clear();
+			this->server_avatar_library.reserve(m->entries.size());
+			for(size_t i=0; i<m->entries.size(); ++i)
+			{
+				GUIClientServerAvatarEntry entry;
+				entry.display_name = m->entries[i].display_name;
+				entry.model_URL = m->entries[i].model_URL;
+				entry.thumbnail_URL = m->entries[i].thumbnail_URL;
+				this->server_avatar_library.push_back(entry);
+			}
+		}
+		break;
 		case Msg_MapTilesResultReceivedMessage:
 		{
 			const MapTilesResultReceivedMessage* m = checkedDowncastPtr<const MapTilesResultReceivedMessage>(msg);
@@ -9408,9 +9460,10 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 								glare::STLArenaAllocator<DependencyURL> stl_arena_allocator(&arena_allocator);
 
 								Avatar::GetDependencyOptions options;
-								options.get_optimised_mesh = this->server_has_optimised_meshes;
+								const bool this_is_our_avatar = (av->uid == this->client_avatar_uid);
+								options.get_optimised_mesh = this->server_has_optimised_meshes && !this_is_our_avatar;
 								options.opt_mesh_version = this->server_opt_mesh_version;
-								options.use_basis = this->server_has_basis_textures;
+								options.use_basis = this->server_has_basis_textures && !this_is_our_avatar;
 
 								DependencyURLSet URL_set(std::less<DependencyURL>(), stl_arena_allocator);
 								av->getDependencyURLSet(av_lod_level, options, URL_set);

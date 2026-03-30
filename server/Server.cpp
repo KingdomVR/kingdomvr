@@ -53,6 +53,7 @@ Copyright Glare Technologies Limited 2023 -
 #include <utils/IndigoXMLDoc.h>
 #include <utils/ArgumentParser.h>
 #include <utils/SocketBufferOutStream.h>
+#include <utils/FileChecksum.h>
 #include <utils/OpenSSL.h>
 #include <utils/KeyPairGen.h>
 #include <tls.h>
@@ -215,6 +216,165 @@ static bool isFeatureFlagSet(Reference<ServerAllWorldsState>& worlds_state, uint
 }
 
 
+static std::string avatarDisplayNameFromFilename(const std::string& filename)
+{
+	std::string stem = removeDotAndExtension(filename);
+	if(hasSuffix(stem, "_VRM"))
+		stem = stem.substr(0, stem.size() - std::string("_VRM").size());
+	else if(hasSuffix(stem, "_GLB"))
+		stem = stem.substr(0, stem.size() - std::string("_GLB").size());
+	else if(hasSuffix(stem, "_Thumbnail_GIF"))
+		stem = stem.substr(0, stem.size() - std::string("_Thumbnail_GIF").size());
+	return stem;
+}
+
+
+static std::string avatarLibraryManifestPathForDir(const std::string& avatar_files_dir)
+{
+	return avatar_files_dir + "/avatar_library_manifest.tsv";
+}
+
+
+static void saveAvatarLibraryManifest(const std::string& avatar_files_dir, const std::vector<ServerAvatarLibraryEntry>& entries)
+{
+	std::string data = "version\t1\n";
+	for(size_t i=0; i<entries.size(); ++i)
+	{
+		data += entries[i].display_name;
+		data += "\t";
+		data += toStdString(entries[i].model_URL);
+		data += "\t";
+		data += toStdString(entries[i].thumbnail_URL);
+		data += "\n";
+	}
+
+	FileUtils::writeEntireFileTextMode(avatarLibraryManifestPathForDir(avatar_files_dir), data);
+}
+
+
+static std::vector<ServerAvatarLibraryEntry> loadAvatarLibraryManifest(const std::string& avatar_files_dir)
+{
+	const std::string manifest_path = avatarLibraryManifestPathForDir(avatar_files_dir);
+	if(!FileUtils::fileExists(manifest_path))
+		return std::vector<ServerAvatarLibraryEntry>();
+
+	std::vector<ServerAvatarLibraryEntry> entries;
+
+	const std::string contents = FileUtils::readEntireFileTextMode(manifest_path);
+	Parser parser(contents);
+	string_view ignored_line;
+	parser.parseLine(ignored_line); // Skip version header line.
+
+	while(!parser.eof())
+	{
+		string_view display_name, model_url, thumbnail_url;
+		parser.parseToCharOrEOF('\t', display_name);
+		if(parser.eof())
+			break;
+		parser.parseChar('\t');
+		parser.parseToCharOrEOF('\t', model_url);
+		if(parser.eof())
+			break;
+		parser.parseChar('\t');
+		parser.parseLine(thumbnail_url);
+
+		ServerAvatarLibraryEntry entry;
+		entry.display_name = stripHeadAndTailWhitespace(toString(display_name));
+		entry.model_URL = toURLString(stripHeadAndTailWhitespace(toString(model_url)));
+		entry.thumbnail_URL = toURLString(stripHeadAndTailWhitespace(toString(thumbnail_url)));
+		entries.push_back(entry);
+	}
+
+	return entries;
+}
+
+
+static void registerAvatarLibraryResources(const std::string& avatar_files_dir, ResourceManager& resource_manager, const std::vector<ServerAvatarLibraryEntry>& entries)
+{
+	for(size_t i=0; i<entries.size(); ++i)
+	{
+		if(!entries[i].model_URL.empty())
+		{
+			const std::string model_path = avatar_files_dir + "/" + toStdString(entries[i].model_URL);
+			if(FileUtils::fileExists(model_path))
+				resource_manager.addExternalResource(entries[i].model_URL, model_path);
+		}
+
+		if(!entries[i].thumbnail_URL.empty())
+		{
+			const std::string thumb_path = avatar_files_dir + "/" + toStdString(entries[i].thumbnail_URL);
+			if(FileUtils::fileExists(thumb_path))
+				resource_manager.addExternalResource(entries[i].thumbnail_URL, thumb_path);
+		}
+	}
+}
+
+
+static std::vector<ServerAvatarLibraryEntry> importAvatarLibraryDir(const std::string& source_dir, const std::string& avatar_files_dir, ResourceManager& resource_manager)
+{
+	struct PendingAvatarEntry
+	{
+		std::string display_name;
+		std::string model_path;
+		std::string thumbnail_path;
+	};
+
+	std::map<std::string, PendingAvatarEntry> pending;
+
+	const std::vector<std::string> paths = FileUtils::getFilesInDirFullPaths(source_dir);
+	for(size_t i=0; i<paths.size(); ++i)
+	{
+		const std::string filename = FileUtils::getFilename(paths[i]);
+		if(hasExtension(filename, "vrm") || hasExtension(filename, "glb"))
+		{
+			const std::string key = avatarDisplayNameFromFilename(filename);
+			pending[key].display_name = key;
+			pending[key].model_path = paths[i];
+		}
+		else if(hasExtension(filename, "gif") && hasSuffix(removeDotAndExtension(filename), "_Thumbnail_GIF"))
+		{
+			const std::string key = avatarDisplayNameFromFilename(filename);
+			pending[key].display_name = key;
+			pending[key].thumbnail_path = paths[i];
+		}
+	}
+
+	std::vector<ServerAvatarLibraryEntry> entries;
+	entries.reserve(pending.size());
+
+	for(auto it = pending.begin(); it != pending.end(); ++it)
+	{
+		if(it->second.model_path.empty())
+			continue;
+
+		ServerAvatarLibraryEntry entry;
+		entry.display_name = it->second.display_name;
+
+		const uint64 model_hash = FileChecksum::fileChecksum(it->second.model_path);
+		entry.model_URL = ResourceManager::URLForNameAndExtensionAndHash(FileUtils::getFilename(it->second.model_path), getExtension(it->second.model_path), model_hash);
+		const std::string model_dest_path = avatar_files_dir + "/" + toStdString(entry.model_URL);
+		if(!FileUtils::fileExists(model_dest_path))
+			FileUtils::copyFile(it->second.model_path, model_dest_path);
+		resource_manager.addExternalResource(entry.model_URL, model_dest_path);
+
+		if(!it->second.thumbnail_path.empty())
+		{
+			const uint64 thumb_hash = FileChecksum::fileChecksum(it->second.thumbnail_path);
+			entry.thumbnail_URL = ResourceManager::URLForNameAndExtensionAndHash(FileUtils::getFilename(it->second.thumbnail_path), getExtension(it->second.thumbnail_path), thumb_hash);
+			const std::string thumb_dest_path = avatar_files_dir + "/" + toStdString(entry.thumbnail_URL);
+			if(!FileUtils::fileExists(thumb_dest_path))
+				FileUtils::copyFile(it->second.thumbnail_path, thumb_dest_path);
+			resource_manager.addExternalResource(entry.thumbnail_URL, thumb_dest_path);
+		}
+
+		entries.push_back(entry);
+	}
+
+	std::sort(entries.begin(), entries.end(), [](const ServerAvatarLibraryEntry& a, const ServerAvatarLibraryEntry& b) { return a.display_name < b.display_name; });
+	return entries;
+}
+
+
 static glare::AtomicInt should_quit(0);
 
 
@@ -259,6 +419,7 @@ int main(int argc, char *argv[])
 		syntax["--test"] = std::vector<ArgumentParser::ArgumentType>();
 		syntax["--save_sanitised_database"] = std::vector<ArgumentParser::ArgumentType>(1, ArgumentParser::ArgumentType_string); // One string arg
 		syntax["--db_path"] = std::vector<ArgumentParser::ArgumentType>(1, ArgumentParser::ArgumentType_string); // One string arg: path to database file on disk
+		syntax["--avatar_library_dir"] = std::vector<ArgumentParser::ArgumentType>(1, ArgumentParser::ArgumentType_string); // One string arg: path to import VRM/GLB files from.
 		syntax["--do_not_load_resources"] = std::vector<ArgumentParser::ArgumentType>();
 
 		std::vector<std::string> args;
@@ -324,6 +485,8 @@ int main(int argc, char *argv[])
 
 		const std::string server_resource_dir = server_state_dir + "/server_resources";
 		FileUtils::createDirIfDoesNotExist(server_resource_dir);
+		const std::string avatar_files_dir = server_state_dir + "/avatar_files";
+		FileUtils::createDirIfDoesNotExist(avatar_files_dir);
 
 		server.world_state->resource_manager = new ResourceManager(server_resource_dir);
 
@@ -344,6 +507,21 @@ int main(int argc, char *argv[])
 			if(!server.world_state->resource_manager->isFileForURLPresent(example_gesture_URL))
 				conPrint("WARNING: file '" + toStdString(example_gesture_URL) + "' did not exist, gesture animations will be missing for users.");
 		}
+
+
+		std::vector<ServerAvatarLibraryEntry> avatar_library_entries = loadAvatarLibraryManifest(avatar_files_dir);
+		registerAvatarLibraryResources(avatar_files_dir, *server.world_state->resource_manager, avatar_library_entries);
+
+		if(parsed_args.isArgPresent("--avatar_library_dir"))
+		{
+			const std::string source_avatar_dir = parsed_args.getArgStringValue("--avatar_library_dir");
+			conPrint("Importing avatars from '" + source_avatar_dir + "'...");
+			avatar_library_entries = importAvatarLibraryDir(source_avatar_dir, avatar_files_dir, *server.world_state->resource_manager);
+			saveAvatarLibraryManifest(avatar_files_dir, avatar_library_entries);
+			conPrint("Imported " + toString(avatar_library_entries.size()) + " avatar library entries.");
+		}
+
+		server.setAvatarLibraryEntries(avatar_library_entries);
 
 
 		// Reads database at the path given by arg 0, writes a sanitised and compacted database at arg 0 path, with "_sanitised" appended to filename.
@@ -1409,6 +1587,20 @@ void Server::enqueueLuaHTTPRequest(Reference<LuaHTTPRequest> request)
 {
 	if(lua_http_manager)
 		lua_http_manager->enqueueHTTPRequest(request);
+}
+
+
+void Server::setAvatarLibraryEntries(const std::vector<ServerAvatarLibraryEntry>& entries)
+{
+	Lock lock(avatar_library_mutex);
+	avatar_library_entries = entries;
+}
+
+
+std::vector<ServerAvatarLibraryEntry> Server::getAvatarLibraryEntriesCopy()
+{
+	Lock lock(avatar_library_mutex);
+	return avatar_library_entries;
 }
 
 

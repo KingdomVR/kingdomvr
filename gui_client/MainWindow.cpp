@@ -44,6 +44,7 @@ Copyright Glare Technologies Limited 2024 -
 #include "../shared/ImageDecoding.h"
 #include "../shared/MessageUtils.h"
 #include <QtCore/QMimeData>
+#include <QtCore/QCoreApplication>
 #include <QtCore/QSettings>
 #include <QtCore/QLoggingCategory>
 #include <QtGui/QMouseEvent>
@@ -52,6 +53,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QErrorMessage>
+#include <QtWidgets/QProgressDialog>
 #include <QtGamepad/QGamepadManager>
 #include <QtGamepad/QGamepad>
 #include "../qt/QtUtils.h"
@@ -1519,17 +1521,111 @@ static void enqueueMessageToSend(ClientThread& client_thread, SocketBufferOutStr
 }
 
 
+static void preloadAvatarThumbnails(Reference<ResourceManager> resource_manager, DownloadingResourceQueue& download_queue,
+	const std::vector<AvatarSettingsDialog::AvatarLibraryEntry>& server_avatar_library, QWidget* parent)
+{
+	std::vector<URLString> thumb_urls;
+	for(size_t i=0; i<server_avatar_library.size(); ++i)
+	{
+		if(!server_avatar_library[i].thumbnail_URL.empty())
+			thumb_urls.push_back(server_avatar_library[i].thumbnail_URL);
+	}
+
+	if(thumb_urls.empty())
+		return;
+
+	for(size_t i=0; i<thumb_urls.size(); ++i)
+		if(!resource_manager->isFileForURLPresent(thumb_urls[i]))
+			download_queue.enqueueOrUpdateItem(thumb_urls[i], Vec4f(0, 0, 0, 1), 1.f);
+
+	QProgressDialog progress("Downloading avatar thumbnails...", "Continue", 0, (int)thumb_urls.size(), parent);
+	progress.setWindowModality(Qt::WindowModal);
+	progress.setMinimumDuration(0);
+
+	while(true)
+	{
+		int done = 0;
+		for(size_t i=0; i<thumb_urls.size(); ++i)
+		{
+			if(resource_manager->isFileForURLPresent(thumb_urls[i]) || resource_manager->isInDownloadFailedURLs(thumb_urls[i]))
+				done++;
+		}
+
+		progress.setValue(done);
+		if(done >= (int)thumb_urls.size())
+			break;
+
+		QCoreApplication::processEvents(QEventLoop::AllEvents, 30);
+		if(progress.wasCanceled())
+			break;
+
+		PlatformUtils::Sleep(10);
+	}
+}
+
+
+static void preloadAvatarModelIfNeeded(Reference<ResourceManager> resource_manager, DownloadingResourceQueue& download_queue,
+	const URLString& model_URL, QWidget* parent)
+{
+	if(model_URL.empty() || resource_manager->isFileForURLPresent(model_URL))
+		return;
+
+	download_queue.enqueueOrUpdateItem(model_URL, Vec4f(0, 0, 0, 1), 0.001f);
+
+	QProgressDialog progress("Downloading selected avatar...", "Continue", 0, 1, parent);
+	progress.setWindowModality(Qt::WindowModal);
+	progress.setMinimumDuration(0);
+
+	while(!resource_manager->isFileForURLPresent(model_URL) && !resource_manager->isInDownloadFailedURLs(model_URL))
+	{
+		QCoreApplication::processEvents(QEventLoop::AllEvents, 30);
+		if(progress.wasCanceled())
+			break;
+
+		PlatformUtils::Sleep(10);
+	}
+
+	progress.setValue(1);
+}
+
+
 void MainWindow::on_actionAvatarSettings_triggered()
 {
-	AvatarSettingsDialog dialog(this->base_dir_path, this->settings, gui_client.resource_manager, &gui_client.animation_manager);
+	std::vector<AvatarSettingsDialog::AvatarLibraryEntry> server_avatar_library;
+	server_avatar_library.reserve(gui_client.server_avatar_library.size());
+	for(size_t i=0; i<gui_client.server_avatar_library.size(); ++i)
+	{
+		AvatarSettingsDialog::AvatarLibraryEntry entry;
+		entry.display_name = gui_client.server_avatar_library[i].display_name;
+		entry.model_URL = gui_client.server_avatar_library[i].model_URL;
+		entry.thumbnail_URL = gui_client.server_avatar_library[i].thumbnail_URL;
+		server_avatar_library.push_back(entry);
+	}
+
+	preloadAvatarThumbnails(gui_client.resource_manager, gui_client.download_queue, server_avatar_library, this);
+
+	AvatarSettingsDialog dialog(this->base_dir_path, this->settings, gui_client.resource_manager, &gui_client.animation_manager,
+		gui_client.logged_in_user_name, &gui_client.download_queue, server_avatar_library);
 	const int res = dialog.exec();
 	ui->glWidget->makeCurrent();// Change back from the dialog GL context to the mainwindow GL context.
 
-	if((res == QDialog::Accepted) && dialog.loaded_mesh.nonNull()) //  loaded_object.nonNull()) // If the dialog was accepted, and we loaded something:
+	if(res == QDialog::Accepted)
 	{
 		try
 		{
-			gui_client.updateOurAvatarModel(dialog.loaded_mesh, dialog.result_path, dialog.pre_ob_to_world_matrix, dialog.loaded_materials);
+			if(dialog.use_server_avatar_selection && !dialog.selected_server_avatar_URL.empty())
+			{
+				if(dialog.loaded_mesh.nonNull())
+					gui_client.updateOurAvatarModel(dialog.loaded_mesh, dialog.result_path, dialog.pre_ob_to_world_matrix, dialog.loaded_materials);
+				else
+					throw glare::Exception("Selected server avatar was not fully processed. Please wait for download/processing to finish and try again.");
+			}
+			else if(dialog.loaded_mesh.nonNull())
+			{
+				gui_client.updateOurAvatarModel(dialog.loaded_mesh, dialog.result_path, dialog.pre_ob_to_world_matrix, dialog.loaded_materials);
+			}
+			else
+				print("Avatar settings accepted with no processed custom mesh; skipping apply.");
 		}
 		catch(glare::Exception& e)
 		{

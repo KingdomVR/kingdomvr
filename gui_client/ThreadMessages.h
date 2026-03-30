@@ -38,6 +38,7 @@ enum GuiClientThreadMessages
 	Msg_ServerAdminMessage,
 	Msg_WorldSettingsReceivedMessage,
 	Msg_WorldDetailsReceivedMessage,
+	Msg_ServerAvatarLibraryMessage,
 	Msg_MapTilesResultReceivedMessage,
 	Msg_UserSelectedObjectMessage,
 	Msg_UserDeselectedObjectMessage,
