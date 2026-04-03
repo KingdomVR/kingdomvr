@@ -21,6 +21,7 @@ Copyright Glare Technologies Limited 2017 -
 
 
 class RandomAccessInStream;
+class ServerAllWorldsState;
 
 
 struct EmailSendingInfo
@@ -61,6 +62,9 @@ public:
 
 	void setNewPasswordAndSalt(const std::string& new_password);
 
+	void getEquippedGear(ServerAllWorldsState* world_state, GearItems& gear_items_out) const;
+	void updateEquippedGearIDs(const GearItems& equipped_gear_items);
+
 	UserID id;
 
 	TimeStamp created_time;
@@ -79,6 +83,9 @@ public:
 	AvatarSettings avatar_settings;
 
 	GestureSettings gesture_settings;
+
+	std::set<UID> gear_ids;
+	std::vector<UID> equipped_gear_ids;
 
 	static const uint32 WORLD_GARDENER_FLAG           = 1; // Can this user add objects outside of parcels
 	static const uint32 ALLOW_DYN_TEX_UPDATE_CHECKING = 2; // Will the user's dynamic_texture_update scripts be run by the server?

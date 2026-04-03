@@ -506,13 +506,27 @@ void WorkerThread::handleScreenshotBotConnection()
 
 				server->world_state->last_screenshot_bot_contact_time = TimeStamp::currentTime();
 
-				// Find first screenshot in screenshots map in ScreenshotState_notdone state.  NOTE: slow linear scan.
-				for(auto it = server->world_state->screenshots.begin(); it != server->world_state->screenshots.end(); ++it)
-				{
-					if(it->second->state == Screenshot::ScreenshotState_notdone)
+				// Find first not-done gear screenshot, if it exists
+				if(false)
+					for(auto it = server->world_state->screenshots.begin(); it != server->world_state->screenshots.end(); ++it)
 					{
-						screenshot = it->second;
-						break;
+						if(it->second->screenshot_type == Screenshot::ScreenshotType_Gear && it->second->state == Screenshot::ScreenshotState_notdone)
+						{
+							screenshot = it->second;
+							break;
+						}
+					}
+
+				// Find first screenshot in screenshots map in ScreenshotState_notdone state.  NOTE: slow linear scan.
+				if(screenshot.isNull())
+				{
+					for(auto it = server->world_state->screenshots.begin(); it != server->world_state->screenshots.end(); ++it)
+					{
+						if(it->second->state == Screenshot::ScreenshotState_notdone)
+						{
+							screenshot = it->second;
+							break;
+						}
 					}
 				}
 
@@ -533,7 +547,7 @@ void WorkerThread::handleScreenshotBotConnection()
 
 			if(screenshot.nonNull()) // If there is a screenshot to take:
 			{
-				if(!screenshot->is_map_tile)
+				if(screenshot->screenshot_type == Screenshot::ScreenshotType_Default)
 				{
 					socket->writeUInt32(Protocol::ScreenShotRequest);
 
@@ -546,13 +560,31 @@ void WorkerThread::handleScreenshotBotConnection()
 					socket->writeInt32(screenshot->width_px);
 					socket->writeInt32(screenshot->highlight_parcel_id);
 				}
-				else
+				else if(screenshot->screenshot_type == Screenshot::ScreenshotType_MapTile)
 				{
 					socket->writeUInt32(Protocol::TileScreenShotRequest);
 
 					socket->writeInt32(screenshot->tile_x);
 					socket->writeInt32(screenshot->tile_y);
 					socket->writeInt32(screenshot->tile_z);
+				}
+				else // ScreenshotType_Gear
+				{
+					assert(screenshot->screenshot_type == Screenshot::ScreenshotType_Gear);
+
+					// Serialise GearItem into scratch_packet while holding lock; don't hold lock during network write.
+					scratch_packet.buf.clear();
+					{
+						Lock lock(server->world_state->mutex);
+						auto it = server->world_state->gear_items.find(screenshot->gear_item_id);
+						if(it == server->world_state->gear_items.end())
+							throw glare::Exception("Failed to find gear item with id " + screenshot->gear_item_id.toString());
+						it->second->writeToStream(scratch_packet);
+					}
+
+					socket->writeUInt32(Protocol::GearScreenShotRequest);
+					socket->writeInt32(screenshot->width_px);
+					socket->writeData(scratch_packet.buf.data(), scratch_packet.buf.size());
 				}
 
 				// Read response
@@ -574,7 +606,14 @@ void WorkerThread::handleScreenshotBotConnection()
 					const int NUM_BYTES = 16;
 					uint8 pathdata[NUM_BYTES];
 					CryptoRNG::getRandomBytes(pathdata, NUM_BYTES);
-					const std::string screenshot_filename = "screenshot_" + StringUtils::convertByteArrayToHexString(pathdata, NUM_BYTES) + ".jpg";
+
+					std::string prefix;
+					if(screenshot->screenshot_type == Screenshot::ScreenshotType_MapTile)
+						prefix = "map_tile_";
+					else if(screenshot->screenshot_type == Screenshot::ScreenshotType_Gear)
+						prefix = "gear_";
+
+					const std::string screenshot_filename = prefix + "screenshot_" + StringUtils::convertByteArrayToHexString(pathdata, NUM_BYTES) + ".jpg";
 					const std::string screenshot_path = server->screenshot_dir + "/" + screenshot_filename;
 
 					// Save screenshot to path
@@ -584,8 +623,8 @@ void WorkerThread::handleScreenshotBotConnection()
 					conPrint("Saved to disk at " + screenshot_path);
 
 
-					// Add map tile as a resource too, for access by embedded minimap on client.
-					if(screenshot->is_map_tile)
+					// Add map tile as a resource too, for access by embedded minimap on client, or gear screenshot as a resource.
+					if(screenshot->screenshot_type == Screenshot::ScreenshotType_MapTile || screenshot->screenshot_type == Screenshot::ScreenshotType_Gear)
 					{
 						// Copy screenshot into resource dir and add as a resource
 						const URLString URL = toURLString(screenshot_filename);
@@ -603,6 +642,24 @@ void WorkerThread::handleScreenshotBotConnection()
 						}
 
 						screenshot->URL = URL;
+
+						// Update associated gear item preview_image_URL.
+						if(screenshot->screenshot_type == Screenshot::ScreenshotType_Gear)
+						{
+							Lock lock(server->world_state->mutex);
+
+							{
+								auto res = server->world_state->gear_items.find(screenshot->gear_item_id);
+								if(res != server->world_state->gear_items.end())
+								{
+									GearItemRef gear_item = res->second;
+									gear_item->preview_image_URL = URL;
+									server->world_state->addGearItemAsDBDirty(gear_item);
+								}
+							}
+
+
+						}
 					}
 
 
@@ -613,7 +670,7 @@ void WorkerThread::handleScreenshotBotConnection()
 						Lock lock(server->world_state->mutex);
 						server->world_state->addScreenshotAsDBDirty(screenshot);
 
-						if(screenshot->is_map_tile) // If we received a tile screenshot, mark map tile info as dirty to get it saved.
+						if(screenshot->screenshot_type == Screenshot::ScreenshotType_MapTile) // If we received a tile screenshot, mark map tile info as dirty to get it saved.
 							server->world_state->map_tile_info.db_dirty = true;
 					}
 				}
@@ -1129,6 +1186,7 @@ void WorkerThread::doRun()
 	UserID client_user_id = UserID::invalidUserID(); // Will be an invalid reference if client is not logged in, otherwise will refer to the user account the client is logged in to.
 	std::string client_user_name;
 	AvatarSettings client_user_avatar_settings;
+	GearItems client_equipped_gear;
 	GestureSettings client_gesture_settings;
 	uint32 client_user_flags = 0;
 
@@ -1230,6 +1288,7 @@ void WorkerThread::doRun()
 					client_user_id = cookie_logged_in_user->id;
 					client_user_name = cookie_logged_in_user->name;
 					client_user_avatar_settings = cookie_logged_in_user->avatar_settings; // TODO: clone materials?
+					cookie_logged_in_user->getEquippedGear(world_state, /*gear items out=*/client_equipped_gear);
 					client_user_flags = cookie_logged_in_user->flags;
 					client_gesture_settings = cookie_logged_in_user->gesture_settings;
 				}
@@ -1244,6 +1303,7 @@ void WorkerThread::doRun()
 				writeAvatarSettingsToStream(client_user_avatar_settings, scratch_packet);
 				scratch_packet.writeUInt32(client_user_flags);
 				client_gesture_settings.writeToStream(scratch_packet);
+				client_equipped_gear.writeToStream(scratch_packet);
 				MessageUtils::updatePacketLengthField(scratch_packet);
 
 				socket->writeData(scratch_packet.buf.data(), scratch_packet.buf.size());
@@ -1555,16 +1615,15 @@ void WorkerThread::doRun()
 					case Protocol::AvatarFullUpdate:
 						{
 							conPrintIfNotFuzzing("Protocol::AvatarFullUpdate");
-							const UID avatar_uid = readUIDFromStream(msg_buffer);
 
 							Avatar temp_avatar;
-							readAvatarFromNetworkStreamGivenUID(msg_buffer, temp_avatar); // Read message data before grabbing lock
+							readAvatarFromNetworkStream(msg_buffer, temp_avatar); // Read message data before grabbing lock
 
 							// Look up existing avatar in world state
 							{
 								WorldStateLock lock(world_state->mutex);
 								const ServerWorldState::AvatarMapType& avatars = cur_world_state->getAvatars(lock);
-								auto res = avatars.find(avatar_uid);
+								auto res = avatars.find(temp_avatar.uid);
 								if(res != avatars.end())
 								{
 									Avatar* avatar = res->second.getPointer();
@@ -1572,24 +1631,28 @@ void WorkerThread::doRun()
 									avatar->other_dirty = true;
 
 
-									// Store avatar settings in the user data
+									// Store avatar settings and equipped gear settings in the user data
 									if(client_user_id.valid())
 									{
 										const bool avatar_settings_changed = !(client_user_avatar_settings == avatar->avatar_settings);
+										const bool equipped_gear_changed   = !(client_equipped_gear        == avatar->equipped_gear);
 
-										if(avatar_settings_changed && !world_state->isInReadOnlyMode())
+										if((avatar_settings_changed || equipped_gear_changed) && !world_state->isInReadOnlyMode())
 										{
-											client_user_avatar_settings = avatar->avatar_settings;
-
 											auto res2 = world_state->user_id_to_users.find(client_user_id);
 											if(res2 != world_state->user_id_to_users.end())
 											{
 												Reference<User> client_user = res2->second;
 												client_user->avatar_settings = avatar->avatar_settings;
+												client_user->updateEquippedGearIDs(avatar->equipped_gear);
+												client_user->getEquippedGear(world_state, avatar->equipped_gear); // Update avatar->equipped_gear with authoritative data from the server.
 												world_state->addUserAsDBDirty(client_user);
 
-												conPrintIfNotFuzzing("Updated user avatar settings.  model_url: " + toStdString(client_user->avatar_settings.model_url));
+												conPrintIfNotFuzzing("Updated user avatar settings and equipped gear settings.  model_url: " + toStdString(client_user->avatar_settings.model_url));
 											}
+
+											client_user_avatar_settings = avatar->avatar_settings;
+											client_equipped_gear        = avatar->equipped_gear;
 										}
 									}
 
@@ -1619,8 +1682,7 @@ void WorkerThread::doRun()
 							// will use the client_avatar_uid that we assigned to the client
 						
 							Avatar temp_avatar;
-							temp_avatar.uid = readUIDFromStream(msg_buffer); // Will be replaced.
-							readAvatarFromNetworkStreamGivenUID(msg_buffer, temp_avatar); // Read message data before grabbing lock
+							readAvatarFromNetworkStream(msg_buffer, temp_avatar); // Read message data before grabbing lock
 
 							temp_avatar.name = client_user_id.valid() ? client_user_name : "Anonymous";
 
@@ -3001,6 +3063,7 @@ void WorkerThread::doRun()
 										client_user_avatar_settings = user->avatar_settings;
 										client_user_flags = user->flags;
 										client_gesture_settings = user->gesture_settings;
+										user->getEquippedGear(world_state, /*gear items out=*/client_equipped_gear);
 
 										logged_in = true;
 									}
@@ -3020,6 +3083,7 @@ void WorkerThread::doRun()
 								writeAvatarSettingsToStream(client_user_avatar_settings, scratch_packet);
 								scratch_packet.writeUInt32(client_user_flags);
 								client_gesture_settings.writeToStream(scratch_packet);
+								client_equipped_gear.writeToStream(scratch_packet);
 								MessageUtils::updatePacketLengthField(scratch_packet);
 
 								socket->writeData(scratch_packet.buf.data(), scratch_packet.buf.size());
@@ -3109,6 +3173,7 @@ void WorkerThread::doRun()
 												client_user_id = new_user->id; // Log user in as well.
 												client_user_name = new_user->name;
 												client_user_avatar_settings = new_user->avatar_settings;
+												new_user->getEquippedGear(world_state, /*gear items out=*/client_equipped_gear);
 												client_user_flags = new_user->flags;
 
 												world_state->addPersonalWorldForUser(new_user, lock);
@@ -3360,6 +3425,36 @@ void WorkerThread::doRun()
 									}
 								}
 							}
+
+							break;
+						}
+					case Protocol::QueryUserGear:
+						{
+							conPrintIfNotFuzzing("QueryUserGear");
+
+							GearItems all_gear;
+							if(client_user_id.valid())
+							{
+								WorldStateLock lock(world_state->mutex);
+								auto user_it = world_state->user_id_to_users.find(client_user_id);
+								if(user_it != world_state->user_id_to_users.end())
+								{
+									const User* user = user_it->second.ptr();
+									for(const UID& gear_id : user->gear_ids)
+									{
+										auto gear_it = world_state->gear_items.find(gear_id);
+										if(gear_it != world_state->gear_items.end())
+											all_gear.items.push_back(gear_it->second);
+									}
+								}
+							}
+
+							MessageUtils::initPacket(scratch_packet, Protocol::UserGearList);
+							all_gear.writeToStream(scratch_packet);
+							MessageUtils::updatePacketLengthField(scratch_packet);
+
+							socket->writeData(scratch_packet.buf.data(), scratch_packet.buf.size());
+							socket->flush();
 
 							break;
 						}

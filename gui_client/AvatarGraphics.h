@@ -17,6 +17,7 @@ Copyright Glare Technologies Limited 2021 -
 #include <string>
 #include <vector>
 struct GLObject;
+struct MeshData;
 class OpenGLEngine;
 class PhysicsWorld;
 class PhysicsObject;
@@ -84,6 +85,20 @@ struct PoseConstraint
 #endif
 
 
+struct EquippedGearGraphics
+{
+	EquippedGearGraphics();
+	~EquippedGearGraphics();
+
+	Matrix4f transform; // Relative to bone transform.
+	Reference<GLObject> gear_gl_ob;
+	std::string bone_name; // NOTE: have this in here? or just keep in GearItem?
+	int bone_node_i;
+
+	Reference<MeshData> mesh_data; // Hang on to a reference to the mesh data, so when object-uses of it are removed, it can be removed from the MeshManager with meshDataBecameUnused().
+};
+
+
 /*=====================================================================
 AvatarGraphics
 --------------
@@ -118,15 +133,18 @@ public:
 
 	void build(bool our_avatar);
 	//void create(OpenGLEngine& engine, const std::string& URL);
+	void updateGearBones();
 
-	void destroy(OpenGLEngine& engine, PhysicsWorld& physics_world);
-	
+	void destroy(OpenGLEngine& engine, PhysicsWorld& physics_world, bool destroy_gear_models);
+
 	void setSelectedObBeam(OpenGLEngine& engine, const Vec3d& target_pos); // create or update beam
 	void hideSelectedObBeam(OpenGLEngine& engine);
 
 	// These are just measured with mk.1 eyeball and a stopwatch.
 	static float walkCyclePeriod() { return 1.015f; }
 	static float runCyclePeriod() { return  0.7f; }
+
+	static float getEyeHeight() { return 1.67f; } // e.g. Standard eye/camera height above ground.  1.67 m.  Should be the same as PlayerPhysics::getEyeHeight().
 
 	Vec4f getLastHeadPosition() const;
 	Vec4f getLastLeftEyePosition() const;
@@ -147,6 +165,10 @@ public:
 	
 	Reference<GLObject> skinned_gl_ob;
 	int loaded_lod_level;
+
+	std::vector<EquippedGearGraphics> equipped_gear_graphics;
+
+	Reference<MeshData> mesh_data; // Hang on to a reference to the mesh data, so when object-uses of it are removed, it can be removed from the MeshManager with meshDataBecameUnused().
 
 private:
 	Vec3f avatar_rotation_at_turn_start;

@@ -43,14 +43,15 @@ CyberspaceProtocolVersion
 47: Added UserGestureSettingsChanged message.
 48: Added ping+pong messages.
 49: Added AvatarSatOnSeat, AvatarGotUpFromSeat messages.
-50: Added ServerAvatarLibraryMessage.
+50: Added QueryUserGear and UserGearList messages.
+51: Added ServerAvatarLibraryMessage.
 */
 namespace Protocol
 {
 
 const uint32 CyberspaceHello = 1357924680;
 
-const uint32 CyberspaceProtocolVersion = 50;
+const uint32 CyberspaceProtocolVersion = 51;
 
 const uint32 ClientProtocolOK		= 10000;
 const uint32 ClientProtocolTooOld	= 10001;
@@ -93,6 +94,9 @@ const uint32 UserMovedAwayFromAvatar	= 1201;
 
 
 const uint32 UserGestureSettingsChanged = 1300;
+
+const uint32 QueryUserGear			= 1400; // Client requests the full list of gear items owned by the logged-in user.
+const uint32 UserGearList			= 1401; // Server sends back GearItems for all gear owned by the user.
 
 
 const uint32 ChatMessageID			= 2000;
@@ -190,6 +194,7 @@ const uint32 TimeSyncMessage		= 9000; // Sends the current time
 const uint32 ScreenShotRequest		= 11001;
 const uint32 ScreenShotSucceeded	= 11002;
 const uint32 TileScreenShotRequest	= 11003;
+const uint32 GearScreenShotRequest	= 11004;
 
 
 const uint32 SubmitEthTransactionRequest		= 12001;

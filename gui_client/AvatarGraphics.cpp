@@ -9,6 +9,7 @@ Copyright Glare Technologies Limited 2021 -
 #include "AnimationManager.h"
 #include "PhysicsWorld.h"
 #include "ParticleManager.h"
+#include "MeshManager.h"
 #include "../shared/GestureSettings.h"
 #include "opengl/OpenGLEngine.h"
 #include "opengl/MeshPrimitiveBuilding.h"
@@ -24,6 +25,10 @@ Copyright Glare Technologies Limited 2021 -
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+
+
+EquippedGearGraphics::EquippedGearGraphics() : transform(Matrix4f::identity()), bone_node_i(-1) {}
+EquippedGearGraphics::~EquippedGearGraphics() {}
 
 
 AvatarGraphics::AvatarGraphics(Avatar* avatar_)
@@ -1214,7 +1219,24 @@ void AvatarGraphics::setOverallTransform(OpenGLEngine& engine, PhysicsWorld& phy
 			Vec4f spine2_pos = skinned_gl_ob->ob_to_world_matrix * (skinned_gl_ob->anim_node_data[spine2_node_i].node_hierarchical_to_object * Vec4f(0,0,0,1));
 			anim_events_out.blob_sphere_positions[anim_events_out.num_blobs++] = spine2_pos;
 		}
+
+
+
+		//--------------------------------------------- Set gear transforms ---------------------------------------------
+		for(size_t i=0; i<equipped_gear_graphics.size(); ++i)
+		{
+			EquippedGearGraphics& gear = equipped_gear_graphics[i];
+			if(gear.gear_gl_ob && gear.bone_node_i != -1)
+			{
+				if(gear.bone_node_i >= 0 && gear.bone_node_i < (int)skinned_gl_ob->anim_node_data.size())
+				{
+					gear.gear_gl_ob->ob_to_world_matrix = (skinned_gl_ob->ob_to_world_matrix * skinned_gl_ob->anim_node_data[gear.bone_node_i].node_hierarchical_to_object) * gear.transform;
+
+					engine.updateObjectTransformData(*gear.gear_gl_ob);
+				}
 			}
+		}
+	}
 	else // else if skinned_gl_ob is NULL:
 	{
 		// While skinned_gl_ob is NULL, e.g. we are not showing the avatar, keep avatar_rotation etc. updated.  This is so when/if the avatar is made visible, it won't do a turning animation to bring
@@ -1367,16 +1389,44 @@ void AvatarGraphics::build(bool our_avatar_)
 
 
 	skinned_gl_ob->current_anim_i = idle_anim_i; // current_anim_i will be 0 on GLObject creation, which is waving anim or something, set to idle anim.
+
+	// Gear for this avatar may have been loaded before the avatar model, in which case bone_node_i's won't have been assigned yet.  Assign now.
+	updateGearBones();
 }
 
 
-void AvatarGraphics::destroy(OpenGLEngine& engine, PhysicsWorld& physics_world)
+void AvatarGraphics::updateGearBones()
+{
+	if(skinned_gl_ob)
+	{
+		const AnimationData& anim_data = skinned_gl_ob->mesh_data->animation_data;
+
+		for(size_t i=0; i<equipped_gear_graphics.size(); ++i)
+		{
+			EquippedGearGraphics& gear = equipped_gear_graphics[i];
+			if(gear.bone_node_i == -1)
+				gear.bone_node_i = anim_data.getNodeIndex(gear.bone_name);
+		}
+	}
+}
+
+
+void AvatarGraphics::destroy(OpenGLEngine& engine, PhysicsWorld& physics_world, bool destroy_gear_models)
 {
 	checkRemoveObAndSetRefToNull(engine, skinned_gl_ob);
 	checkRemoveObAndSetRefToNull(engine, selected_ob_beam);
 
-	checkRemoveObAndSetRefToNull(engine, debug_avatar_basis_ob);
+	this->mesh_data = nullptr;
 
+	if(destroy_gear_models)
+	{
+		for(size_t i=0; i<equipped_gear_graphics.size(); ++i)
+			checkRemoveObAndSetRefToNull(engine, equipped_gear_graphics[i].gear_gl_ob);
+		equipped_gear_graphics.clear();
+	}
+
+
+	checkRemoveObAndSetRefToNull(engine, debug_avatar_basis_ob);
 
 	checkRemoveObAndSetRefToNull(physics_world, physics_ob);
 }

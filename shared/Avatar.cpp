@@ -25,6 +25,7 @@ Generated at 2016-01-12 12:24:54 +1300
 #include <utils/FileChecksum.h>
 #include <utils/RandomAccessInStream.h>
 #include <utils/RandomAccessOutStream.h>
+#include <utils/BufferViewInStream.h>
 #include <physics/jscol_aabbox.h>
 
 
@@ -99,51 +100,87 @@ Avatar::~Avatar()
 
 void Avatar::appendDependencyURLs(int ob_lod_level, const GetDependencyOptions& options, DependencyURLVector& URLs_out)
 {
-	if(!avatar_settings.model_url.empty())
-	{
-		GetLODModelURLOptions url_options(options.get_optimised_mesh, options.opt_mesh_version);
+	const GetLODModelURLOptions model_options(options.get_optimised_mesh, options.opt_mesh_version);
 
-		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, ob_lod_level, url_options)));
-	}
+	if(!avatar_settings.model_url.empty())
+		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, ob_lod_level, model_options)));
 
 	const WorldMaterial::GetURLOptions mat_options(options.use_basis, /*area allocator=*/nullptr);
 
 	for(size_t i=0; i<avatar_settings.materials.size(); ++i)
 		avatar_settings.materials[i]->appendDependencyURLs(mat_options, ob_lod_level, URLs_out);
+
+
+	// Append gear dependency URLs
+	for(size_t i=0; i<equipped_gear.items.size(); ++i)
+	{
+		const GearItem* item = equipped_gear.items[i].ptr();
+
+		// Process gear model
+		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(item->model_url, ob_lod_level, model_options)));
+
+		// Process gear materials
+		for(size_t z=0; z<item->materials.size(); ++z)
+			item->materials[z]->appendDependencyURLs(mat_options, ob_lod_level, URLs_out);
+	}
 }
 
 
 void Avatar::appendDependencyURLsForAllLODLevels(const GetDependencyOptions& options, DependencyURLVector& URLs_out)
 {
-	if(!avatar_settings.model_url.empty())
-	{
-		GetLODModelURLOptions url_options(options.get_optimised_mesh, options.opt_mesh_version);
+	const GetLODModelURLOptions model_options(options.get_optimised_mesh, options.opt_mesh_version);
 
-		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, 0, url_options)));
-		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, 1, url_options)));
-		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, 2, url_options)));
-	}
+	if(!avatar_settings.model_url.empty())
+		for(int level=0; level<3; ++level)
+			URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, level, model_options)));
 
 	const WorldMaterial::GetURLOptions mat_options(options.use_basis, /*area allocator=*/nullptr);
 
 	for(size_t i=0; i<avatar_settings.materials.size(); ++i)
 		avatar_settings.materials[i]->appendDependencyURLsAllLODLevels(mat_options, URLs_out);
+
+
+	// Append gear dependency URLs
+	for(size_t i=0; i<equipped_gear.items.size(); ++i)
+	{
+		const GearItem* item = equipped_gear.items[i].ptr();
+
+		// Process gear model
+		for(int level=0; level<3; ++level)
+			URLs_out.push_back(DependencyURL(getLODModelURLForLevel(item->model_url, level, model_options)));
+
+		// Process gear materials
+		for(size_t z=0; z<item->materials.size(); ++z)
+			item->materials[z]->appendDependencyURLsAllLODLevels(mat_options, URLs_out);
+	}
 }
 
 
 void Avatar::appendDependencyURLsBaseLevel(const GetDependencyOptions& options, DependencyURLVector& URLs_out) const
 {
-	if(!avatar_settings.model_url.empty())
-	{
-		GetLODModelURLOptions url_options(options.get_optimised_mesh, options.opt_mesh_version);
+	const GetLODModelURLOptions model_options(options.get_optimised_mesh, options.opt_mesh_version);
 
-		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, 0, url_options)));
-	}
+	if(!avatar_settings.model_url.empty())
+		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(avatar_settings.model_url, 0, model_options)));
 
 	const WorldMaterial::GetURLOptions mat_options(options.use_basis, /*area allocator=*/nullptr);
 
 	for(size_t i=0; i<avatar_settings.materials.size(); ++i)
 		avatar_settings.materials[i]->appendDependencyURLsBaseLevel(mat_options, URLs_out);
+
+
+	// Append gear dependency URLs
+	for(size_t i=0; i<equipped_gear.items.size(); ++i)
+	{
+		const GearItem* item = equipped_gear.items[i].ptr();
+
+		// Process gear model
+		URLs_out.push_back(DependencyURL(getLODModelURLForLevel(item->model_url, 0, model_options)));
+
+		// Process gear materials
+		for(size_t z=0; z<item->materials.size(); ++z)
+			item->materials[z]->appendDependencyURLsBaseLevel(mat_options, URLs_out);
+	}
 }
 
 
@@ -181,6 +218,21 @@ void Avatar::convertLocalPathsToURLS(ResourceManager& resource_manager)
 
 	for(size_t i=0; i<avatar_settings.materials.size(); ++i)
 		avatar_settings.materials[i]->convertLocalPathsToURLS(resource_manager);
+
+
+	// Process Gear Items
+	for(size_t i=0; i<equipped_gear.items.size(); ++i)
+	{
+		GearItem* item = equipped_gear.items[i].ptr();
+
+		// Process gear model
+		if(FileUtils::fileExists(item->model_url)) // If the URL is a local path:
+			item->model_url = resource_manager.URLForPathAndHash(toStdString(item->model_url), FileChecksum::fileChecksum(item->model_url));
+
+		// Process gear materials
+		for(size_t z=0; z<item->materials.size(); ++z)
+			item->materials[z]->convertLocalPathsToURLS(resource_manager);
+	}
 }
 
 
@@ -399,6 +451,8 @@ void Avatar::copyNetworkStateFrom(const Avatar& other)
 	avatar_settings.copyNetworkStateFrom(other.avatar_settings);
 
 	flags = other.flags;
+
+	equipped_gear = other.equipped_gear;
 }
 
 
@@ -452,7 +506,7 @@ void writeAvatarSettingsToStream(const AvatarSettings& settings, RandomAccessOut
 
 void readAvatarSettingsFromStream(RandomAccessInStream& stream, AvatarSettings& settings)
 {
-	settings.model_url	= stream.readStringLengthFirst(10000);
+	settings.model_url = stream.readStringLengthFirst(10000);
 
 	// Read materials
 	{
@@ -483,18 +537,22 @@ void writeAvatarToNetworkStream(const Avatar& avatar, RandomAccessOutStream& str
 	writeAvatarSettingsToStream(avatar.avatar_settings, stream);
 
 	stream.writeUInt32(avatar.flags);
+
+	avatar.equipped_gear.writeToStream(stream);
 }
 
 
-void readAvatarFromNetworkStreamGivenUID(RandomAccessInStream& stream, Avatar& avatar) // UID will have been read already
+void readAvatarFromNetworkStream(RandomAccessInStream& stream, Avatar& avatar) // UID will have been read already
 {
+	avatar.uid			= readUIDFromStream(stream);
 	avatar.name			= stream.readStringLengthFirst(10000);
 	avatar.pos			= readVec3FromStream<double>(stream);
 	avatar.rotation		= readVec3FromStream<float>(stream);
 	readAvatarSettingsFromStream(stream, avatar.avatar_settings);
 
 	if(!stream.endOfStream())
-	{
 		avatar.flags = stream.readUInt32();
-	}
+
+	if(!stream.endOfStream())
+		readGearItemsFromStream(stream, avatar.equipped_gear);
 }

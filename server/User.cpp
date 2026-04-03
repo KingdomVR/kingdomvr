@@ -143,8 +143,45 @@ void User::setNewPasswordAndSalt(const std::string& new_password)
 }
 
 
-static const uint32 USER_SERIALISATION_VERSION = 6;
+void User::getEquippedGear(ServerAllWorldsState* world_state, GearItems& gear_items_out) const
+{
+	gear_items_out.items.resize(0);
+	gear_items_out.items.reserve(equipped_gear_ids.size());
 
+	for(size_t i=0; i<equipped_gear_ids.size(); ++i)
+	{
+		const UID item_id = equipped_gear_ids[i];
+		if(gear_ids.count(item_id) != 0)
+		{
+			// Lookup GearItem object in world_state by id
+			auto res = world_state->gear_items.find(item_id);
+			if(res != world_state->gear_items.end())
+				gear_items_out.items.push_back(res->second);
+		}
+		else
+			conPrint("Warning: user had id " + toString(item_id.value()) + " in equipped_gear_ids, which was not in user->gear");
+	}
+}
+
+
+void User::updateEquippedGearIDs(const GearItems& equipped_gear_items)
+{
+	equipped_gear_ids.resize(0);
+	equipped_gear_ids.reserve(equipped_gear_items.items.size());
+
+	// Copy ids from equipped_gear_items, checking that the gear item actually exists in gear first.
+	for(size_t i=0; i<equipped_gear_items.items.size(); ++i)
+	{
+		const UID item_id = equipped_gear_items.items[i]->id;
+		if(gear_ids.count(item_id) > 0)
+			equipped_gear_ids.push_back(item_id);
+	}
+}
+
+
+static const uint32 USER_SERIALISATION_VERSION = 7;
+
+// Version 7: Added gear and equipped_gear_ids
 // Version 6: Added gesture_settings
 // Version 5: Added flags
 // Version 4: Added avatar_settings
@@ -178,6 +215,16 @@ void writeUserToStream(const User& user, RandomAccessOutStream& stream)
 	user.gesture_settings.writeToStream(stream);
 
 	stream.writeUInt32(user.flags);
+
+	// Write gear_ids
+	stream.writeUInt32((uint32)user.gear_ids.size());
+	for(auto it = user.gear_ids.begin(); it != user.gear_ids.end(); ++it)
+		::writeToStream(*it, stream);
+
+	// Write equipped_gear_ids
+	stream.writeUInt32((uint32)user.equipped_gear_ids.size());
+	for(size_t i=0; i<user.equipped_gear_ids.size(); ++i)
+		::writeToStream(user.equipped_gear_ids[i], stream);
 }
 
 
@@ -222,7 +269,28 @@ void readUserFromStream(RandomAccessInStream& stream, User& user)
 
 	if(v >= 5)
 		user.flags = stream.readUInt32();
+
+	if(v >= 7)
+	{
+		// Read gear_ids
+		{
+			const uint32 gear_ids_size = stream.readUInt32();
+			if(gear_ids_size > (uint32)10000)
+				throw glare::Exception("gear_ids_size too large: " + toString(gear_ids_size));
+
+			for(size_t i=0; i<gear_ids_size; ++i)
+				user.gear_ids.insert(readUIDFromStream(stream));
+		}
+
+		// Read equipped_gear_ids
+		{
+			const uint32 equipped_gear_ids_size = stream.readUInt32();
+			if(equipped_gear_ids_size > (uint32)10000)
+				throw glare::Exception("equipped_gear_ids_size too large: " + toString(equipped_gear_ids_size));
+
+			user.equipped_gear_ids.resize(equipped_gear_ids_size);
+			for(size_t i=0; i<equipped_gear_ids_size; ++i)
+				user.equipped_gear_ids[i] = readUIDFromStream(stream);
+		}
+	}
 }
-
-
-
