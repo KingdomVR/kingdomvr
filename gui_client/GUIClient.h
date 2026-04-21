@@ -34,9 +34,10 @@ Copyright Glare Technologies Limited 2024 -
 #include "../opengl/TextureLoading.h"
 #include "../opengl/PBOAsyncTextureUploader.h"
 #include "../opengl/AsyncGeometryUploader.h"
+//#include "../opengl/TransformGizmo.h"
 #include "../shared/WorldObject.h"
 #include "../shared/LuaScriptEvaluator.h"
-#include "../shared/TimerQueue.h"
+#include "../shared/ScriptTimerQueue.h"
 #include "../settings/SettingsStore.h"
 #include <ui/UIEvents.h>
 #include <utils/ArgumentParser.h>
@@ -48,6 +49,8 @@ Copyright Glare Technologies Limited 2024 -
 #include <utils/GenerationalArray.h>
 #include <utils/UniqueRef.h>
 #include <utils/ArenaAllocator.h>
+#include <utils/TimerQueue.h>
+#include <utils/RateLimitedSender.h>
 #include <maths/PCG32.h>
 #include <maths/LineSegment4f.h>
 #include <networking/IPAddress.h>
@@ -106,6 +109,7 @@ class PBO;
 class GestureSettings;
 class PhotoModeUI;
 class GearInventoryUI;
+class TransformGizmo;
 namespace Scripting { class ObjectScriptsEvaluator; }
 
 
@@ -271,8 +275,12 @@ public:
 	std::string getCurrentURL() const;
 	void goBack();
 	void gestureSettingsChanged(const GestureSettings& new_gesture_settings);
-	void gearItemClicked(const GearItemRef& item);         // Called when a gear item thumbnail is clicked in the All Gear panel.
-	void equippedGearItemClicked(const GearItemRef& item); // Called when a gear item thumbnail is clicked in the Equipped panel.
+	void openGearInventory();
+	void convertSelectedObjectToGearItem();
+	void equipGearItem(const GearItemRef& item);    // Called when a gear item thumbnail is clicked in the All Gear panel.
+	void unequipGearItem(const GearItemRef& item);  // Called when a gear item thumbnail is clicked in the Equipped panel.
+	void dropGearItem(const GearItemRef& item);     // Called when the user presses D while hovering a gear thumbnail.  Unequips if equipped, then asks the server to drop the item into the world.
+	void tryCloneGearItem(const GearItemRef& item); // Called when the user presses C while hovering a gear thumbnail.  Sends a message to server to try to clone the gear item.
 	void worldSettingsChangedFromUI(const WorldSettings& new_world_settings);
 	void applyWorldSettingsToOpenGLEngine();
 public:
@@ -286,10 +294,12 @@ public:
 	GLObjectRef makeSpeakerGLObject();
 public:
 	void makeShaders();
+	Avatar* getOurAvatar(WorldStateLock& world_state_lock) REQUIRES(world_state->mutex);
 	void loadModelForObject(WorldObject* ob, WorldStateLock& world_state_lock) REQUIRES(world_state->mutex);
 	void loadPresentObjectGraphicsAndPhysicsModels(WorldObject* ob, const Reference<MeshData>& mesh_data, const Reference<PhysicsShapeData>& physics_shape_data, int ob_lod_level, int ob_model_lod_level, int voxel_subsample_factor, WorldStateLock& world_state_lock);
 	void loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const Reference<MeshData>& mesh_data);
 	void loadPresentGearModel(const GearItem* item, EquippedGearGraphics* equipped_gear_graphics, Avatar* avatar, int av_lod_level, const Reference<MeshData>& mesh_data);
+	void gearItemChangedOnOurAvatar(GearItem* item);
 	void loadModelForAvatar(Avatar* avatar);
 	void loadScriptForObject(WorldObject* ob, WorldStateLock& world_state_lock);
 	void handleScriptLoadedForObUsingScript(ScriptLoadedThreadMessage* loaded_msg, WorldObject* ob);
@@ -338,7 +348,6 @@ public:
 public:
 	bool getPixelForPoint(const Vec4f& point_ws, Vec2f& pixel_coords_out) const; // Get screen-space coordinates for a world-space point.  Returns true if point is visible from camera.
 	bool getGLUICoordsForPoint(const Vec4f& point_ws, Vec2f& coords_out) const; // Returns true if point is visible from camera.
-	Vec4f pointOnLineWorldSpace(const Vec4f& p_a_ws, const Vec4f& p_b_ws, const Vec2f& pixel_coords) const;
 
 	void pickUpSelectedObject();
 	void dropSelectedObject();
@@ -346,7 +355,6 @@ public:
 	void checkForLODChanges(Timer& timer_event_timer);
 	void checkForAudioRangeChanges();
 
-	int mouseOverAxisArrowOrRotArc(const Vec2f& pixel_coords, Vec4f& closest_seg_point_ws_out); // Returns closest axis arrow or -1 if no close.
 	void sendChatMessage(const std::string& message);
 
 	// If the object was not in a parcel with write permissions at all, returns false.
@@ -551,9 +559,13 @@ public:
 
 	WorldDetails connected_world_details;
 	WorldSettings connected_world_settings; // Settings for the world we are connected to, if any.
-	bool world_settings_locally_dirty;
+
+	bool world_settings_locally_dirty; // World settings have been changed locally.  Send update to server after a brief period to avoid spamming changes to server.
 	Timer world_settings_local_change_timer;
-	
+
+	std::map<UID, SocketBufferOutStream> latest_gear_item_update_msg; // Updates for gear items that have been changed locally.  Send updates to server after a brief period to avoid spamming changes to server.
+	RateLimitedSender gear_item_update_sender;
+
 
 	Reference<Indigo::Mesh> ground_quad_mesh;
 	Reference<OpenGLMeshRenderData> ground_quad_mesh_opengl_data;
@@ -589,22 +601,7 @@ public:
 	GLObjectRef aabb_ws_vis_gl_ob; // Used for visualising the world-space AABB of the selected object.
 	std::vector<GLObjectRef> selected_ob_vis_gl_obs; // Used for visualising paths for path-controlled objects.
 
-	static const int NUM_AXIS_ARROWS = 3;
-	LineSegment4f axis_arrow_segments[NUM_AXIS_ARROWS];
-	GLObjectRef axis_arrow_objects[NUM_AXIS_ARROWS]; // For ob placement
-
-	std::vector<LineSegment4f> rot_handle_lines[3];
-	GLObjectRef rot_handle_arc_objects[3];
-
-	bool axis_and_rot_obs_enabled; // Are the axis arrow objects and rotation arcs inserted into the opengl engine? (and grabbable)
-
-	int grabbed_axis; // -1 if no axis grabbed, [0, 3) if grabbed a translation arrow, [3, 6) if grabbed a rotation arc.
-	Vec4f grabbed_point_ws; // Approximate point on arrow line we grabbed, in world space.
-	Vec4f ob_origin_at_grab;
-
-	float grabbed_angle;
-	float original_grabbed_angle;
-	float grabbed_arc_angle_offset;
+	Reference<TransformGizmo> transform_gizmo;
 
 	OpenGLTextureRef default_array_tex;
 
@@ -872,8 +869,8 @@ public:
 
 	Reference<SubstrataLuaVM> lua_vm;
 
-	TimerQueue timer_queue;
-	std::vector<TimerQueueTimer> temp_triggered_timers;
+	ScriptTimerQueue script_timer_queue;
+	std::vector<ScriptTimerQueueTimer> temp_triggered_timers;
 
 	struct ContactAddedEvent
 	{
@@ -945,4 +942,6 @@ public:
 	bool only_load_most_important_obs;
 
 	double last_ping_send_time;
+
+	TimerQueue timer_queue;
 };

@@ -36,6 +36,8 @@ ${GRAPHICS_DIR}/FormatDecoderSTL.cpp
 ${GRAPHICS_DIR}/FormatDecoderSTL.h
 ${GRAPHICS_DIR}/FormatDecoderVox.cpp
 ${GRAPHICS_DIR}/FormatDecoderVox.h
+${GRAPHICS_DIR}/FormatDecoderSubVox.cpp
+${GRAPHICS_DIR}/FormatDecoderSubVox.h
 ${GRAPHICS_DIR}/GaussianFilterFunction.cpp
 ${GRAPHICS_DIR}/GaussianFilterFunction.h
 ${GRAPHICS_DIR}/GaussianImageFilter.cpp
@@ -321,6 +323,8 @@ ${UTILS_DIR}/SharedStringTable.cpp
 ${UTILS_DIR}/SharedStringTable.h
 ${UTILS_DIR}/STLArenaAllocator.cpp
 ${UTILS_DIR}/STLArenaAllocator.h
+${UTILS_DIR}/StackStringBuilder.cpp
+${UTILS_DIR}/StackStringBuilder.h
 )
 
 

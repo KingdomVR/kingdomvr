@@ -3834,6 +3834,18 @@ void MainWindow::on_actionGo_Back_triggered()
 }
 
 
+void MainWindow::on_actionOpen_Gear_Inventory_triggered()
+{
+	gui_client.openGearInventory();
+}
+
+
+void MainWindow::on_actionConvert_Selected_Object_To_Gear_Item_triggered()
+{
+	gui_client.convertSelectedObjectToGearItem();
+}
+
+
 void MainWindow::diagnosticsWidgetChanged()
 {
 	opengl_engine->setDrawWireFrames(ui->diagnosticsWidget->showWireframesCheckBox->isChecked());

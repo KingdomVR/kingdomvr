@@ -22,6 +22,7 @@ Copyright Glare Technologies Limited 2017 -
 
 class RandomAccessInStream;
 class ServerAllWorldsState;
+class WorldStateLock;
 
 
 struct EmailSendingInfo
@@ -62,7 +63,6 @@ public:
 
 	void setNewPasswordAndSalt(const std::string& new_password);
 
-	void getEquippedGear(ServerAllWorldsState* world_state, GearItems& gear_items_out) const;
 	void updateEquippedGearIDs(const GearItems& equipped_gear_items);
 
 	UserID id;

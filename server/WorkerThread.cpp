@@ -110,6 +110,25 @@ void WorkerThread::sendGetFileMessageIfNeeded(const URLString& resource_URL)
 }
 
 
+class ExceptionWithErrMsgForUser : public glare::Exception
+{
+public:
+	ExceptionWithErrMsgForUser(const std::string& msg) : glare::Exception(msg) {}
+};
+
+
+static void writeInfoMessageToClient(SocketInterfaceRef& socket, const std::string& msg)
+{
+	SocketBufferOutStream packet(SocketBufferOutStream::DontUseNetworkByteOrder);
+	MessageUtils::initPacket(packet, Protocol::InfoMessageID);
+	packet.writeStringLengthFirst(msg);
+	MessageUtils::updatePacketLengthField(packet);
+
+	socket->writeData(packet.buf.data(), packet.buf.size());
+	socket->flush();
+}
+
+
 static void writeErrorMessageToClient(SocketInterfaceRef& socket, const std::string& msg)
 {
 	SocketBufferOutStream packet(SocketBufferOutStream::DontUseNetworkByteOrder);
@@ -1172,6 +1191,27 @@ void WorkerThread::sendPerWorldInitialDataToClient(ServerAllWorldsState* world_s
 }
 
 
+static void getEquippedGearForUser(const User& user, ServerAllWorldsState* world_state, WorldStateLock& /*lock*/, GearItems& gear_items_out) REQUIRES(world_state->mutex)
+{
+	gear_items_out.items.resize(0);
+	gear_items_out.items.reserve(user.equipped_gear_ids.size());
+
+	for(size_t i=0; i<user.equipped_gear_ids.size(); ++i)
+	{
+		const UID item_id = user.equipped_gear_ids[i];
+		if(user.gear_ids.count(item_id) != 0)
+		{
+			// Lookup GearItem object in world_state by id
+			auto res = world_state->gear_items.find(item_id);
+			if(res != world_state->gear_items.end())
+				gear_items_out.items.push_back(res->second);
+		}
+		else
+			conPrint("Warning: user had id " + toString(item_id.value()) + " in equipped_gear_ids, which was not in user->gear");
+	}
+}
+
+
 void WorkerThread::doRun()
 {
 	PlatformUtils::setCurrentThreadNameIfTestsEnabled("WorkerThread");
@@ -1280,7 +1320,7 @@ void WorkerThread::doRun()
 			// If the client connected via a websocket, they can be logged in with a session cookie.
 			// Note that this may only work if the websocket connects over TLS.
 			{
-				Lock lock(world_state->mutex);
+				WorldStateLock lock(world_state->mutex);
 				User* cookie_logged_in_user = LoginHandlers::getLoggedInUser(*world_state, this->websocket_request_info);
 	
 				if(cookie_logged_in_user != NULL)
@@ -1288,7 +1328,7 @@ void WorkerThread::doRun()
 					client_user_id = cookie_logged_in_user->id;
 					client_user_name = cookie_logged_in_user->name;
 					client_user_avatar_settings = cookie_logged_in_user->avatar_settings; // TODO: clone materials?
-					cookie_logged_in_user->getEquippedGear(world_state, /*gear items out=*/client_equipped_gear);
+					getEquippedGearForUser(*cookie_logged_in_user, world_state, lock, /*gear items out=*/client_equipped_gear); // Set client_equipped_gear
 					client_user_flags = cookie_logged_in_user->flags;
 					client_gesture_settings = cookie_logged_in_user->gesture_settings;
 				}
@@ -1645,7 +1685,7 @@ void WorkerThread::doRun()
 												Reference<User> client_user = res2->second;
 												client_user->avatar_settings = avatar->avatar_settings;
 												client_user->updateEquippedGearIDs(avatar->equipped_gear);
-												client_user->getEquippedGear(world_state, avatar->equipped_gear); // Update avatar->equipped_gear with authoritative data from the server.
+												getEquippedGearForUser(*client_user, world_state, lock, /*gear items out=*/avatar->equipped_gear);  // Update avatar->equipped_gear with authoritative data from the server.
 												world_state->addUserAsDBDirty(client_user);
 
 												conPrintIfNotFuzzing("Updated user avatar settings and equipped gear settings.  model_url: " + toStdString(client_user->avatar_settings.model_url));
@@ -3048,7 +3088,7 @@ void WorkerThread::doRun()
 						
 							bool logged_in = false;
 							{
-								Lock lock(world_state->mutex);
+								WorldStateLock lock(world_state->mutex);
 								auto res = world_state->name_to_users.find(username);
 								if(res != world_state->name_to_users.end())
 								{
@@ -3063,7 +3103,7 @@ void WorkerThread::doRun()
 										client_user_avatar_settings = user->avatar_settings;
 										client_user_flags = user->flags;
 										client_gesture_settings = user->gesture_settings;
-										user->getEquippedGear(world_state, /*gear items out=*/client_equipped_gear);
+										getEquippedGearForUser(*user, world_state, lock, /*gear items out=*/client_equipped_gear); // Set client_equipped_gear
 
 										logged_in = true;
 									}
@@ -3173,7 +3213,7 @@ void WorkerThread::doRun()
 												client_user_id = new_user->id; // Log user in as well.
 												client_user_name = new_user->name;
 												client_user_avatar_settings = new_user->avatar_settings;
-												new_user->getEquippedGear(world_state, /*gear items out=*/client_equipped_gear);
+												getEquippedGearForUser(*new_user, world_state, lock, /*gear items out=*/client_equipped_gear); // Set client_equipped_gear
 												client_user_flags = new_user->flags;
 
 												world_state->addPersonalWorldForUser(new_user, lock);
@@ -3414,6 +3454,7 @@ void WorkerThread::doRun()
 							{
 								if(!world_state->isInReadOnlyMode())
 								{
+									WorldStateLock lock(world_state->mutex);
 									auto res2 = world_state->user_id_to_users.find(client_user_id);
 									if(res2 != world_state->user_id_to_users.end())
 									{
@@ -3432,13 +3473,16 @@ void WorkerThread::doRun()
 						{
 							conPrintIfNotFuzzing("QueryUserGear");
 
-							GearItems all_gear;
+							MessageUtils::initPacket(scratch_packet, Protocol::UserGearList);
+							bool wrote_all_gear = false;
+
 							if(client_user_id.valid())
 							{
 								WorldStateLock lock(world_state->mutex);
 								auto user_it = world_state->user_id_to_users.find(client_user_id);
 								if(user_it != world_state->user_id_to_users.end())
 								{
+									GearItems all_gear;
 									const User* user = user_it->second.ptr();
 									for(const UID& gear_id : user->gear_ids)
 									{
@@ -3446,15 +3490,403 @@ void WorkerThread::doRun()
 										if(gear_it != world_state->gear_items.end())
 											all_gear.items.push_back(gear_it->second);
 									}
+									all_gear.writeToStream(scratch_packet); // Serialise while holding lock, but don't send
+									wrote_all_gear = true;
 								}
 							}
+							
+							if(!wrote_all_gear)
+							{
+								// User not found - user may not be logged in.  Just send back an empty gear list.
+								GearItems all_gear;
+								all_gear.writeToStream(scratch_packet);
+							}
 
-							MessageUtils::initPacket(scratch_packet, Protocol::UserGearList);
-							all_gear.writeToStream(scratch_packet);
 							MessageUtils::updatePacketLengthField(scratch_packet);
 
 							socket->writeData(scratch_packet.buf.data(), scratch_packet.buf.size());
 							socket->flush();
+
+							break;
+						}
+					case Protocol::GearItemUpdate: // Client wants to modify a gear item
+						{
+							conPrintIfNotFuzzing("GearItemUpdate");
+
+							GearItemRef updated_item = new GearItem();
+							::readGearItemFromStream(msg_buffer, *updated_item);
+
+							if(world_state->isInReadOnlyMode())
+							{
+								writeErrorMessageToClient(socket, "Server is in read-only mode, you can't modify a gear item right now.");
+							}
+							else
+							{
+								if(client_user_id.valid())
+								{
+									// Look up the client user
+									WorldStateLock lock(world_state->mutex);
+									auto user_it = world_state->user_id_to_users.find(client_user_id);
+									if(user_it != world_state->user_id_to_users.end())
+									{
+										const User* user = user_it->second.ptr();
+
+										// Check the user does indeed have this gear item in their all gear list
+										if(user->gear_ids.count(updated_item->id))
+										{
+											// Look up gear item
+											auto gear_it = world_state->gear_items.find(updated_item->id);
+											if(gear_it != world_state->gear_items.end())
+											{
+												GearItem* item = gear_it->second.ptr();
+
+												// Check gear item owner is the user
+												if(item->owner_id == client_user_id)
+												{
+													const bool original_allow_cloning = BitUtils::isBitSet(item->flags, GearItem::ALLOW_CLONING_FLAG);
+													const bool allow_cloning_update_allowed = item->creator_id == client_user_id; // User can update 'allow-cloning' flag iff they are the gear item creator.
+
+													// Finally update the item
+													item->copyUserSettableFieldsFromOther(*updated_item);
+
+													// If the user wasn't allowed to change the allow-cloning flag, restore it.
+													if(!allow_cloning_update_allowed)
+														BitUtils::setOrZeroBit(item->flags, GearItem::ALLOW_CLONING_FLAG, original_allow_cloning);
+
+													world_state->addGearItemAsDBDirty(item);
+												}
+												else
+													conPrint("Error: gear item owner_id != user id when gear item is in user's items.");
+											}
+										}
+									}
+								}
+							}
+
+							break;
+						}
+					case Protocol::CreateGearItem: // Client wants to create a new gear item
+						{
+							conPrintIfNotFuzzing("CreateGearItem");
+
+							GearItemRef new_item = new GearItem();
+							::readGearItemFromStream(msg_buffer, *new_item);
+							new_item->flags = 0;
+							new_item->max_supply = 1;
+							new_item->preview_image_URL.clear(); // Don't accept the user-supplied preview_image_URL.  Will be set when screenshot is captured and uploaded.
+
+							if(world_state->isInReadOnlyMode())
+							{
+								writeErrorMessageToClient(socket, "Server is in read-only mode, you can't create a gear item right now.");
+							}
+							else
+							{
+								bool success = false;
+								if(client_user_id.valid())
+								{
+									// Look up the client user
+									WorldStateLock lock(world_state->mutex);
+									auto user_it = world_state->user_id_to_users.find(client_user_id);
+									if(user_it != world_state->user_id_to_users.end())
+									{
+										User* user = user_it->second.ptr();
+
+										new_item->id = world_state->getNextGearItemUID();
+										new_item->created_time = TimeStamp::currentTime();
+										new_item->creator_id = client_user_id;
+										new_item->owner_id = client_user_id;
+
+										//--------- Create screenshot for it -----------
+										ScreenshotRef gear_shot = new Screenshot();
+										gear_shot->id = world_state->getNextScreenshotUID();
+										gear_shot->screenshot_type = Screenshot::ScreenshotType_Gear;
+										gear_shot->gear_item_id = new_item->id;
+										gear_shot->width_px = 256;
+										gear_shot->state = Screenshot::ScreenshotState_notdone;
+										gear_shot->created_time = TimeStamp::currentTime();
+										world_state->screenshots[gear_shot->id] = gear_shot;
+										world_state->addScreenshotAsDBDirty(gear_shot);
+										//-------------------------------------------
+
+										new_item->preview_image_screenshot_id = gear_shot->id;
+
+										// Add gear item to world state
+										world_state->gear_items[new_item->id] = new_item;
+										world_state->addGearItemAsDBDirty(new_item);
+
+										// Add to user's gear_ids (i.e. insert into inventory)
+										user->gear_ids.insert(new_item->id);
+										world_state->addUserAsDBDirty(user);
+
+										conPrint("Created new gear item for user.");
+										success = true;
+									}
+								}
+
+								if(success)
+									writeInfoMessageToClient(socket, "Gear item created!  Gear item has been added to inventory.");
+								else
+									writeErrorMessageToClient(socket, "Failed to create gear item.");
+
+
+								// Process resources.
+								// Get dependency URLS (while holding lock)
+								DependencyURLSet URLs;
+								{
+									WorldStateLock lock(world_state->mutex);
+								
+									const bool use_basis = false; // Get non-basis resources, convert to basis on server.
+
+									const WorldMaterial::GetURLOptions mat_options(use_basis, /*area allocator=*/nullptr);
+
+									DependencyURLVector mat_urls;
+									for(size_t i=0; i<new_item->materials.size(); ++i)
+										new_item->materials[i]->appendDependencyURLsAllLODLevels(mat_options, mat_urls);
+									URLs = DependencyURLSet(mat_urls.begin(), mat_urls.end());
+
+									URLs.insert(DependencyURL(new_item->model_url));
+								}
+
+								for(auto it = URLs.begin(); it != URLs.end(); ++it)
+								{
+									sendGetFileMessageIfNeeded(it->URL);
+
+									server->enqueueMsgForLodGenThread(new CheckGenLodResourcesForURL(it->URL));
+								}
+							}
+
+							break;
+						}
+					case Protocol::PickUpGearItem: // Client wants to pick up an ObjectType_GearItem world object into their inventory.
+						{
+							conPrintIfNotFuzzing("PickUpGearItem");
+
+							const UID object_uid = readUIDFromStream(msg_buffer);
+
+							try
+							{
+								if(!client_user_id.valid())
+									throw ExceptionWithErrMsgForUser("You must be logged in to pick up a gear item.");
+							
+								if(world_state->isInReadOnlyMode())
+									throw ExceptionWithErrMsgForUser("Server is in read-only mode, you can't pick up a gear item right now.");
+
+								{
+									WorldStateLock lock(world_state->mutex);
+
+									// Lookup world object
+									auto ob_it = cur_world_state->getObjects(lock).find(object_uid);
+									if(ob_it == cur_world_state->getObjects(lock).end())
+										throw ExceptionWithErrMsgForUser("Gear pickup failed: object no longer exists.");
+									WorldObject* ob = ob_it->second.getPointer();
+
+									// Check it's a gear item type world obhect
+									if(ob->object_type != WorldObject::ObjectType_GearItem)
+										throw ExceptionWithErrMsgForUser("Gear pickup failed: target is not a gear item.");
+
+									// Lookup corresponding gear item
+									const UID gear_item_uid(ob->type_data.gear_item_data.gear_item_id);
+									auto gear_it = world_state->gear_items.find(gear_item_uid);
+									if(gear_it == world_state->gear_items.end())
+										throw ExceptionWithErrMsgForUser("Gear pickup failed: backing gear item no longer exists.");
+									GearItem* gear = gear_it->second.ptr();
+
+									// Check the gear item is unowned (i.e. not in another client's inventory)
+									if(gear->owner_id.valid())
+										throw ExceptionWithErrMsgForUser("Gear pickup failed: gear item is owned by someone else.");
+
+									auto user_it = world_state->user_id_to_users.find(client_user_id);
+									if(user_it == world_state->user_id_to_users.end())
+										throw ExceptionWithErrMsgForUser("Gear pickup failed: user not found.");
+									User* user = user_it->second.ptr();
+
+									// Add to client user's inventory
+									user->gear_ids.insert(gear_item_uid);
+									world_state->addUserAsDBDirty(user);
+
+									// Set owner on gear
+									gear->owner_id = client_user_id;
+									world_state->addGearItemAsDBDirty(gear);
+
+									// Destroy the world object (mirrors DestroyObject handler).
+									ob->state = WorldObject::State_Dead;
+									ob->from_remote_other_dirty = true;
+									cur_world_state->addWorldObjectAsDBDirty(ob, lock);
+									cur_world_state->getDirtyFromRemoteObjects(lock).insert(ob);
+								}
+
+								writeInfoMessageToClient(socket, "Gear item added to inventory.");
+							}
+							catch(ExceptionWithErrMsgForUser& e)
+							{
+								writeErrorMessageToClient(socket, e.what());
+							}
+
+							break;
+						}
+					case Protocol::DropGearItem: // Client wants to drop a gear item from their inventory into the world.
+						{
+							conPrintIfNotFuzzing("DropGearItem");
+
+							const UID gear_item_uid = readUIDFromStream(msg_buffer);
+							const Vec3d drop_pos = readVec3FromStream<double>(msg_buffer);
+
+							try
+							{
+								if(!client_user_id.valid())
+									throw ExceptionWithErrMsgForUser("You must be logged in to drop a gear item.");
+								if(world_state->isInReadOnlyMode())
+									throw ExceptionWithErrMsgForUser("Server is in read-only mode, you can't drop a gear item right now.");
+
+								DependencyURLSet URLs;
+								{
+									WorldStateLock lock(world_state->mutex);
+
+									auto user_it = world_state->user_id_to_users.find(client_user_id);
+									if(user_it == world_state->user_id_to_users.end())
+										throw ExceptionWithErrMsgForUser("Gear drop failed: user not found.");
+									User* user = user_it->second.ptr();
+
+									if(user->gear_ids.count(gear_item_uid) == 0)
+										throw ExceptionWithErrMsgForUser("Gear drop failed: item is not in your inventory.");
+								
+									auto gear_it = world_state->gear_items.find(gear_item_uid);
+									if(gear_it == world_state->gear_items.end())
+										throw ExceptionWithErrMsgForUser("Gear drop failed: gear item no longer exists.");
+									GearItem* gear = gear_it->second.ptr();
+
+									if(gear->owner_id != client_user_id)
+										throw ExceptionWithErrMsgForUser("Gear drop failed: you are not the owner.");
+
+									// Create the world-object representation of the dropped gear.
+									WorldObjectRef new_ob = new WorldObject();
+									new_ob->object_type = WorldObject::ObjectType_GearItem;
+									new_ob->model_url = gear->model_url;
+									new_ob->materials = gear->materials; // Snapshot of visuals at drop time.
+									new_ob->target_url = gear->name; // target_url overloaded to carry gear name (see WorldObject.h ObjectType_GearItem note).
+									new_ob->content = gear->description; // content overloaded to carry gear description.
+									new_ob->type_data.gear_item_data.gear_item_id = gear_item_uid.value();
+									new_ob->pos = drop_pos;
+									new_ob->axis = Vec3f(0, 0, 1);
+									new_ob->angle = 0.f;
+									new_ob->scale = gear->scale;
+									new_ob->flags |= WorldObject::EXCLUDE_FROM_LOD_CHUNK_MESH | WorldObject::DYNAMIC_FLAG; // Let physics drop it to the ground.  Don't back into LOD chunk also.
+									new_ob->setAABBOS(js::AABBox(gear->aabb_os_min.toVec4fPoint(), gear->aabb_os_max.toVec4fPoint()));
+									new_ob->creator_id = client_user_id;
+									new_ob->created_time = TimeStamp::currentTime();
+									new_ob->last_modified_time = new_ob->created_time;
+									new_ob->creator_name = client_user_name;
+
+									WorldObject::GetDependencyOptions options;
+									options.use_basis = false;
+									options.get_optimised_mesh = false;
+									new_ob->getDependencyURLSetBaseLevel(options, URLs);
+
+									new_ob->uid = world_state->getNextObjectUID();
+									new_ob->state = WorldObject::State_JustCreated;
+									new_ob->from_remote_other_dirty = true;
+									cur_world_state->getObjects(lock).insert(std::make_pair(new_ob->uid, new_ob));
+									cur_world_state->addWorldObjectAsDBDirty(new_ob, lock);
+									cur_world_state->getDirtyFromRemoteObjects(lock).insert(new_ob);
+
+									// Remove from user's inventory and clear ownership - the dropped item is unowned until picked up.
+									user->gear_ids.erase(gear_item_uid);
+									world_state->addUserAsDBDirty(user);
+
+									gear->owner_id = UserID::invalidUserID();
+									world_state->addGearItemAsDBDirty(gear);
+								} // End world lock scope
+
+								writeInfoMessageToClient(socket, "Gear item dropped.");
+
+								for(auto it = URLs.begin(); it != URLs.end(); ++it)
+									sendGetFileMessageIfNeeded(it->URL);
+							}
+							catch(ExceptionWithErrMsgForUser& e)
+							{
+								writeErrorMessageToClient(socket, e.what());
+							}
+
+							break;
+						}
+					case Protocol::CloneGearItemInInventory:
+						{
+							conPrintIfNotFuzzing("CloneGearItemInInventory");
+
+							const UID gear_item_uid = readUIDFromStream(msg_buffer);
+
+							try
+							{
+								if(!client_user_id.valid())
+									throw ExceptionWithErrMsgForUser("You must be logged in to clone a gear item.");
+								if(world_state->isInReadOnlyMode())
+									throw ExceptionWithErrMsgForUser("Server is in read-only mode, you can't clone a gear item right now.");
+
+								{
+									WorldStateLock lock(world_state->mutex);
+
+									// Lookup user
+									auto user_it = world_state->user_id_to_users.find(client_user_id);
+									if(user_it == world_state->user_id_to_users.end())
+										throw ExceptionWithErrMsgForUser("Clone gear failed: user not found.");
+									User* user = user_it->second.ptr();
+
+									// Check gear item is in user's inventory
+									if(user->gear_ids.count(gear_item_uid) == 0)
+										throw ExceptionWithErrMsgForUser("Clone gear failed: item is not in your inventory.");
+								
+									// Lookup the gear item
+									auto gear_it = world_state->gear_items.find(gear_item_uid);
+									if(gear_it == world_state->gear_items.end())
+										throw ExceptionWithErrMsgForUser("Clone gear failed: gear item no longer exists.");
+									const GearItem* gear = gear_it->second.ptr();
+
+									// Check gear item belongs to the user (should be the case if it's in their inventory)
+									if(gear->owner_id != client_user_id)
+										throw ExceptionWithErrMsgForUser("Clone gear failed: you are not the owner.");
+
+									// Check the 'allow cloning' flag is set on the gear item
+									if(!BitUtils::isBitSet(gear->flags, GearItem::ALLOW_CLONING_FLAG))
+										throw ExceptionWithErrMsgForUser("Clone gear failed: allow-cloning is not enabled on the gear item.");
+
+									// Create the new gear item
+									GearItemRef new_gear_item = new GearItem();
+									new_gear_item->id = world_state->getNextGearItemUID();
+									new_gear_item->created_time = TimeStamp::currentTime();
+									new_gear_item->creator_id  = gear->creator_id;
+									new_gear_item->owner_id    = gear->owner_id;
+									new_gear_item->model_url   = gear->model_url;
+									new_gear_item->materials   = gear->materials;
+									new_gear_item->bone_name   = gear->bone_name;
+									new_gear_item->translation = gear->translation;
+									new_gear_item->axis        = gear->axis;
+									new_gear_item->angle       = gear->angle;
+									new_gear_item->scale       = gear->scale;
+									new_gear_item->flags       = gear->flags;
+									new_gear_item->max_supply  = gear->max_supply;
+									new_gear_item->name        = gear->name;
+									new_gear_item->description = gear->description;
+									new_gear_item->preview_image_screenshot_id   = gear->preview_image_screenshot_id; // NOTE: Just use same screenshot for now
+									new_gear_item->preview_image_URL   = gear->preview_image_URL; // NOTE: Just use same screenshot for now
+									new_gear_item->aabb_os_min = gear->aabb_os_min;
+									new_gear_item->aabb_os_max = gear->aabb_os_max;
+
+									// Add new gear item to world state
+									world_state->gear_items[new_gear_item->id] = new_gear_item;
+									world_state->addGearItemAsDBDirty(new_gear_item);
+
+									// Add new gear item to user's inventory.
+									user->gear_ids.insert(new_gear_item->id);
+									world_state->addUserAsDBDirty(user);
+									
+								} // End world lock scope
+
+								writeInfoMessageToClient(socket, "Gear item cloned.");
+							}
+							catch(ExceptionWithErrMsgForUser& e)
+							{
+								writeErrorMessageToClient(socket, e.what());
+							}
 
 							break;
 						}

@@ -273,10 +273,20 @@ ${CMAKE_SOURCE_DIR}/gui_client/GestureManagerUI.cpp
 ${CMAKE_SOURCE_DIR}/gui_client/GestureManagerUI.h
 ${CMAKE_SOURCE_DIR}/gui_client/GearInventoryUI.cpp
 ${CMAKE_SOURCE_DIR}/gui_client/GearInventoryUI.h
-#${CMAKE_SOURCE_DIR}/gui_client/GearEditorUI.cpp
-#${CMAKE_SOURCE_DIR}/gui_client/GearEditorUI.h
+${CMAKE_SOURCE_DIR}/gui_client/GearEditorUI.cpp
+${CMAKE_SOURCE_DIR}/gui_client/GearEditorUI.h
 ${CMAKE_SOURCE_DIR}/gui_client/AvatarPreviewGLUIWidget.cpp
 ${CMAKE_SOURCE_DIR}/gui_client/AvatarPreviewGLUIWidget.h
+)
+
+
+# Add some utils classes that only the gui_client uses, not server etc.
+SET(utils 
+	${utils}
+	${UTILS_DIR}/TimerQueue.cpp
+	${UTILS_DIR}/TimerQueue.h
+	${UTILS_DIR}/RateLimitedSender.cpp
+	${UTILS_DIR}/RateLimitedSender.h
 )
 
 
@@ -515,8 +525,8 @@ SET(shared_files
 ../shared/LuaScriptEvaluator.h
 ../shared/SubstrataLuaVM.cpp
 ../shared/SubstrataLuaVM.h
-../shared/TimerQueue.cpp
-../shared/TimerQueue.h
+../shared/ScriptTimerQueue.cpp
+../shared/ScriptTimerQueue.h
 ../shared/ObjectEventHandlers.cpp
 ../shared/ObjectEventHandlers.h
 ../shared/LODChunk.cpp

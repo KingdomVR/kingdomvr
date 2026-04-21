@@ -82,6 +82,7 @@ Copyright Glare Technologies Limited 2024 -
 #include "../utils/FastPoolAllocator.h"
 #include "../utils/RuntimeCheck.h"
 #include "../utils/IndigoXMLDoc.h"
+#include "../utils/StackStringBuilder.h"
 #include <utils/IncludeHalf.h>
 #include "../utils/MemAlloc.h"
 #include "../utils/UTF8Utils.h"
@@ -90,6 +91,7 @@ Copyright Glare Technologies Limited 2024 -
 #include "../graphics/ImageMap.h"
 #include "../graphics/SRGBUtils.h"
 #include "../graphics/BasisDecoder.h"
+#include "../graphics/FormatDecoderSubVox.h"
 #include "../dll/include/IndigoMesh.h"
 #include "../indigo/TextureServer.h"
 #include <video/VideoReader.h>
@@ -100,6 +102,7 @@ Copyright Glare Technologies Limited 2024 -
 #include <opengl/VBOPool.h>
 #include <opengl/OpenGLMeshRenderData.h>
 #include <opengl/SSAODebugging.h>
+#include <opengl/TransformGizmo.h>
 #include "../audio/AudioFileReader.h"
 #include <Escaping.h>
 #if !defined(EMSCRIPTEN)
@@ -124,9 +127,6 @@ Copyright Glare Technologies Limited 2024 -
 static const Colour4f DEFAULT_OUTLINE_COLOUR   = Colour4f::fromHTMLHexString("0ff7fb"); // light blue
 static const Colour4f PICKED_UP_OUTLINE_COLOUR = Colour4f::fromHTMLHexString("69fa2d"); // light green
 static const Colour4f PARCEL_OUTLINE_COLOUR    = Colour4f::fromHTMLHexString("f09a13"); // orange
-
-static const Colour3f axis_arrows_default_cols[]   = { Colour3f(0.6f,0.2f,0.2f), Colour3f(0.2f,0.6f,0.2f), Colour3f(0.2f,0.2f,0.6f) };
-static const Colour3f axis_arrows_mouseover_cols[] = { Colour3f(1,0.45f,0.3f),   Colour3f(0.3f,1,0.3f),    Colour3f(0.3f,0.45f,1) };
 
 static const float DECAL_EDGE_AABB_WIDTH = 0.02f;
 
@@ -165,8 +165,6 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	last_foostep_side(0),
 	last_animated_tex_time(0),
 	last_model_and_tex_loading_time(0),
-	grabbed_axis(-1),
-	grabbed_angle(0),
 	force_new_undo_edit(false),
 #if EMSCRIPTEN
 	model_and_texture_loader_task_manager("model and texture loader task manager", /*num threads=*/myClamp<uint32>(PlatformUtils::getNumLogicalProcessors() / 2, 1, 8)),
@@ -181,7 +179,6 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	scratch_packet(SocketBufferOutStream::DontUseNetworkByteOrder),
 	frame_num(0),
 	next_lod_changes_begin_i(0),
-	axis_and_rot_obs_enabled(false),
 	last_vehicle_renewal_msg_time(-1),
 	stack_allocator(/*size (B)=*/22 * 1024 * 1024), // Used for the Jolt physics temp allocator also.
 	arena_allocator(/*size (B)=*/4 * 1024 * 1024), // Used for WorldObject::appendDependencyURLs() etc.
@@ -201,7 +198,8 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	obs_with_scripts(/*empty val=*/WorldObjectRef()),
 	ui_hidden(false),
 	only_load_most_important_obs(false),
-	last_ping_send_time(-1000)
+	last_ping_send_time(-1000),
+	gear_item_update_sender(/*send period=*/2.0)
 {
 	ZoneScoped; // Tracy profiler
 
@@ -262,9 +260,6 @@ GUIClient::GUIClient(const std::string& base_dir_path_, const std::string& appda
 	}
 
 	biome_manager = new BiomeManager();
-
-	for(int i=0; i<NUM_AXIS_ARROWS; ++i)
-		axis_arrow_segments[i] = LineSegment4f(Vec4f(0, 0, 0, 1), Vec4f(1, 0, 0, 1));
 
 	this->animated_texture_manager = new AnimatedTextureManager();
 
@@ -466,9 +461,6 @@ static void assignLoadedOpenGLTexturesToAvatarMats(Avatar* av, bool use_basis, O
 static void assignLoadedOpenGLTexturesToGearItemMats(GearItem* item, EquippedGearGraphics* equipped_gear, bool use_basis, OpenGLEngine& opengl_engine, ResourceManager& resource_manager, AnimatedTextureManager& animated_texture_manager, glare::ArenaAllocator* allocator);
 
 
-static const float arc_handle_half_angle = 1.5f;
-
-
 void GUIClient::afterGLInitInitialise(double device_pixel_ratio, Reference<OpenGLEngine> opengl_engine_, 
 	const TextRendererFontFaceSizeSetRef& fonts, const TextRendererFontFaceSizeSetRef& emoji_fonts)
 {
@@ -557,33 +549,6 @@ void GUIClient::afterGLInitInitialise(double device_pixel_ratio, Reference<OpenG
 		opengl_engine->addObject(arrow);
 	}
 #endif
-
-	// For ob placement:
-	axis_arrow_objects[0] = opengl_engine->makeArrowObject(Vec4f(0,0,0,1), Vec4f(1, 0, 0, 1), Colour4f(0.6, 0.2, 0.2, 1.f), 1.f);
-	axis_arrow_objects[1] = opengl_engine->makeArrowObject(Vec4f(0,0,0,1), Vec4f(0, 1, 0, 1), Colour4f(0.2, 0.6, 0.2, 1.f), 1.f);
-	axis_arrow_objects[2] = opengl_engine->makeArrowObject(Vec4f(0,0,0,1), Vec4f(0, 0, 1, 1), Colour4f(0.2, 0.2, 0.6, 1.f), 1.f);
-
-	//axis_arrow_objects[3] = opengl_engine->makeArrowObject(arrow_origin, arrow_origin - Vec4f(1, 0, 0, 0), Colour4f(0.6, 0.2, 0.2, 1.f), 1.f);
-	//axis_arrow_objects[4] = opengl_engine->makeArrowObject(arrow_origin, arrow_origin - Vec4f(0, 1, 0, 0), Colour4f(0.2, 0.6, 0.2, 1.f), 1.f);
-	//axis_arrow_objects[5] = opengl_engine->makeArrowObject(arrow_origin, arrow_origin - Vec4f(0, 0, 1, 0), Colour4f(0.2, 0.2, 0.6, 1.f), 1.f);
-
-	for(int i=0; i<3; ++i)
-	{
-		axis_arrow_objects[i]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i]);
-		axis_arrow_objects[i]->always_visible = true;
-	}
-
-
-	for(int i=0; i<3; ++i)
-	{
-		GLObjectRef ob = opengl_engine->allocateObject();
-		ob->ob_to_world_matrix = Matrix4f::translationMatrix((float)i * 3, 0, 2);
-		ob->mesh_data = MeshBuilding::makeRotationArcHandleMeshData(*opengl_engine->vert_buf_allocator, arc_handle_half_angle * 2);
-		ob->materials.resize(1);
-		ob->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i]);
-		ob->always_visible = true;
-		rot_handle_arc_objects[i] = ob;
-	}
 
 
 	// Build ground plane graphics and physics data
@@ -1077,10 +1042,7 @@ void GUIClient::shutdown()
 	aabb_os_vis_gl_ob = NULL;
 	aabb_ws_vis_gl_ob = NULL;
 	selected_ob_vis_gl_obs.clear();
-	for(int i=0; i<NUM_AXIS_ARROWS; ++i)
-		axis_arrow_objects[i] = NULL;
-	for(int i=0; i<3; ++i)
-		rot_handle_arc_objects[i] = NULL;
+	transform_gizmo = NULL;
 	player_phys_debug_spheres.clear();
 	wheel_gl_objects.clear();
 	car_body_gl_object = NULL;
@@ -2777,10 +2739,8 @@ void GUIClient::loadModelForObject(WorldObject* ob, WorldStateLock& world_state_
 				}
 			}
 		}
-		else if(ob->object_type == WorldObject::ObjectType_Generic)
+		else if(ob->object_type == WorldObject::ObjectType_Generic || ob->object_type == WorldObject::ObjectType_GearItem)
 		{
-			assert(ob->object_type == WorldObject::ObjectType_Generic);
-
 			
 			//if(::hasPrefix(ob->content, "biome:")) // If we want to scatter on this object:
 			//{
@@ -2848,6 +2808,7 @@ void GUIClient::loadModelForObject(WorldObject* ob, WorldStateLock& world_state_
 							load_model_task->build_dynamic_physics_ob = ob->isDynamic();
 							load_model_task->worker_allocator = worker_allocator;
 							load_model_task->upload_thread = opengl_upload_thread;
+							load_model_task->ob_to_world_matrix = obToWorldMatrix(*ob);
 
 							load_item_queue.enqueueItem(/*key=*/lod_model_url, *ob, load_model_task, max_dist_for_ob_model_lod_level);
 						}
@@ -3043,7 +3004,7 @@ void GUIClient::loadPresentObjectGraphicsAndPhysicsModels(WorldObject* ob, const
 
 
 // The meshdata for the avatar model is loaded into the opengl engine.
-// Create gl_ob and physics objects for avatar.  
+// Create gl_ob for avatar.
 // Assign any loaded textures.
 void GUIClient::loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const Reference<MeshData>& mesh_data)
 {
@@ -3054,7 +3015,7 @@ void GUIClient::loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const R
 
 	const Matrix4f ob_to_world_matrix = obToWorldMatrix(*avatar);
 
-	// Create gl and physics object now
+	// Create graphics ob
 	glare::ArenaFrame frame(arena_allocator);
 	const bool use_basis_for_avatar = this->server_has_basis_textures && !avatar->our_avatar;
 	avatar->graphics.skinned_gl_ob = ModelLoading::makeGLObjectForMeshDataAndMaterials(*opengl_engine, mesh_data->gl_meshdata, av_lod_level, avatar->avatar_settings.materials, /*lightmap_url=*/URLString(), 
@@ -3100,7 +3061,8 @@ void GUIClient::loadPresentAvatarModel(Avatar* avatar, int av_lod_level, const R
 
 	opengl_engine->addObject(avatar->graphics.skinned_gl_ob);
 
-	if(avatar->our_avatar && gear_inventory_ui)
+	// If the inventory UI is open, set the avatar preview in it.
+	if(avatar->isOurAvatar() && gear_inventory_ui)
 		gear_inventory_ui->setAvatarGLObject(avatar->graphics, avatar->graphics.skinned_gl_ob, avatar->avatar_settings.pre_ob_to_world_matrix);
 
 	// See if there is a gesture animation we should be playing, and if so, play it.
@@ -3164,27 +3126,73 @@ void GUIClient::loadPresentGearModel(const GearItem* item, EquippedGearGraphics*
 }
 
 
-static Matrix4f gearObToWorldMatrix(const GearItem& item)
+Avatar* GUIClient::getOurAvatar(WorldStateLock&)
 {
-	const Vec4f pos((float)item.translation.x, (float)item.translation.y, (float)item.translation.z, 1.f);
+	auto res = this->world_state->avatars.find(this->client_avatar_uid);
+	if(res != this->world_state->avatars.end())
+		return res->second.ptr();
+	else
+		return nullptr;
+}
 
-	// Don't use a zero scale component, because it makes the matrix uninvertible, which breaks various things, including picking and normals.
-	Vec3f use_scale = item.scale;
-	if(std::fabs(use_scale.x) < 1.0e-6f) use_scale.x = 1.0e-6f;
-	if(std::fabs(use_scale.y) < 1.0e-6f) use_scale.y = 1.0e-6f;
-	if(std::fabs(use_scale.z) < 1.0e-6f) use_scale.z = 1.0e-6f;
 
-	// Equivalent to
-	//return Matrix4f::translationMatrix(pos + ob.translation) *
-	//	Matrix4f::rotationMatrix(normalise(ob.axis.toVec4fVector()), ob.angle) *
-	//	Matrix4f::scaleMatrix(use_scale.x, use_scale.y, use_scale.z));
+// A gear item has been edited in the GearEditorUI.
+void GUIClient::gearItemChangedOnOurAvatar(GearItem* updated_item)
+{
+	//----------- Update equipped_gear_graphics vector -------------
+	{
+		WorldStateLock lock(this->world_state->mutex);
+		Avatar* avatar = getOurAvatar(lock);
+		if(avatar)
+		{
+			if(avatar->equipped_gear.items.size() != avatar->graphics.equipped_gear_graphics.size())
+				avatar->graphics.equipped_gear_graphics.resize(avatar->equipped_gear.items.size());
 
-	Matrix4f rot = Matrix4f::rotationMatrix(normalise(item.axis.toVec4fVector()), item.angle);
-	rot.setColumn(0, rot.getColumn(0) * use_scale.x);
-	rot.setColumn(1, rot.getColumn(1) * use_scale.y);
-	rot.setColumn(2, rot.getColumn(2) * use_scale.z);
-	rot.setColumn(3, pos);
-	return rot;
+			for(size_t i=0; i<avatar->graphics.equipped_gear_graphics.size(); ++i)
+			{
+				if(avatar->equipped_gear.items[i]->id == updated_item->id)
+				{
+					avatar->equipped_gear.items[i] = updated_item;
+
+					// Copy state.  NOTE: why is this needed?
+					//avatar->equipped_gear.items[i]->bone_name   = item->bone_name;
+					//avatar->equipped_gear.items[i]->translation = item->translation;
+					//avatar->equipped_gear.items[i]->scale       = item->scale;
+					//avatar->equipped_gear.items[i]->axis        = item->axis;
+					//avatar->equipped_gear.items[i]->angle       = item->angle;
+					// etc...
+
+
+					avatar->graphics.equipped_gear_graphics[i].gear_id   = updated_item->id;
+					avatar->graphics.equipped_gear_graphics[i].bone_name = updated_item->bone_name;
+					avatar->graphics.equipped_gear_graphics[i].bone_node_i = -1; // Clear bone binding
+					avatar->graphics.equipped_gear_graphics[i].transform = updated_item->gearObToBoneSpaceMatrix();
+				}
+			}
+
+			avatar->graphics.updateGearBones();
+		}
+	}
+
+	// Make GearItemUpdate packet and enqueue to send to server
+	MessageUtils::initPacket(scratch_packet, Protocol::GearItemUpdate);
+	updated_item->writeToStream(scratch_packet);
+	MessageUtils::updatePacketLengthField(scratch_packet);
+
+	// Instead of sending immediately, add to latest_gear_item_update_msg to send later so as not to spam server.
+	latest_gear_item_update_msg[updated_item->id] = scratch_packet;
+
+	gear_item_update_sender.checkSend(timer_queue, /*send_func=*/[this]()
+		{
+			// conPrint("    send_func lambda at " + doubleToStringMaxNDecimalPlaces(Clock::getTimeSinceInit(), 3));
+			for(auto it = latest_gear_item_update_msg.begin(); it != latest_gear_item_update_msg.end(); ++it)
+			{
+				SocketBufferOutStream& packet = it->second;
+				enqueueMessageToSend(*this->client_thread, packet);
+			}
+			latest_gear_item_update_msg.clear();
+		}
+	);
 }
 
 
@@ -3234,7 +3242,7 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 		const bool avatar_is_default_model = avatar->avatar_settings.model_url == DEFAULT_AVATAR_MODEL_URL;
 
 		// Start downloading any resources we don't have that the object uses.
-		if(!avatar_is_default_model) // Avoid downloading optimised version of default avatar; is already optimised.
+		//if(!avatar_is_default_model) // Avoid downloading optimised version of default avatar; is already optimised.  NEW: needed for gear now.
 			startDownloadingResourcesForAvatar(avatar, ob_lod_level);
 
 		startLoadingTexturesForAvatar(*avatar, ob_lod_level, max_dist_for_ob_lod_level);
@@ -3291,6 +3299,7 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 						load_model_task->build_physics_ob = false; // Don't build physics object for avatar mesh, as it isn't used, and can be slow to build.
 						load_model_task->worker_allocator = worker_allocator;
 						load_model_task->upload_thread = opengl_upload_thread;
+						load_model_task->ob_to_world_matrix = obToWorldMatrix(*avatar);
 
 						load_item_queue.enqueueItem(/*key=*/lod_model_url, *avatar, load_model_task, max_dist_for_ob_model_lod_level);
 					}
@@ -3315,8 +3324,9 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 			avatar->graphics.equipped_gear_graphics.resize(avatar->equipped_gear.items.size());
 			for(size_t i=0; i<avatar->graphics.equipped_gear_graphics.size(); ++i)
 			{
+				avatar->graphics.equipped_gear_graphics[i].gear_id   = avatar->equipped_gear.items[i]->id;
 				avatar->graphics.equipped_gear_graphics[i].bone_name = avatar->equipped_gear.items[i]->bone_name;
-				avatar->graphics.equipped_gear_graphics[i].transform = gearObToWorldMatrix(*avatar->equipped_gear.items[i]);
+				avatar->graphics.equipped_gear_graphics[i].transform = avatar->equipped_gear.items[i]->gearObToBoneSpaceMatrix();
 			}
 		}
 
@@ -3348,6 +3358,10 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 					const bool just_added = this->checkAddModelToProcessingSet(lod_model_url, /*dynamic_physics_shape=*/false); // Avoid making multiple LoadModelTasks for this mesh.
 					if(just_added)
 					{
+						js::Vector<bool, 16> mat_transparent(gear_item->materials.size());
+						for(size_t z=0; z<gear_item->materials.size(); ++z)
+							mat_transparent[z] = gear_item->materials[z]->opacity.val < 1.f;
+
 						// Do the model loading in a different thread
 						Reference<LoadModelTask> load_model_task = new LoadModelTask();
 
@@ -3360,6 +3374,8 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 						load_model_task->build_physics_ob = false; // Don't build physics object for avatar mesh, as it isn't used, and can be slow to build.
 						load_model_task->worker_allocator = worker_allocator;
 						load_model_task->upload_thread = opengl_upload_thread;
+						load_model_task->ob_to_world_matrix = obToWorldMatrix(*avatar);
+						load_model_task->mat_transparent = mat_transparent;
 
 						load_item_queue.enqueueItem(/*key=*/lod_model_url, *avatar, load_model_task, max_dist_for_ob_model_lod_level);
 					}
@@ -3873,21 +3889,6 @@ void GUIClient::printStr(const std::string& s) // Print a message without a newl
 }
 
 
-// Avoids NaNs
-static float safeATan2(float y, float x)
-{
-	const float a = std::atan2(y, x);
-	if(!isFinite(a))
-		return 0.f;
-	else
-		return a;
-}
-
-
-// For each direction x, y, z, the two other basis vectors. 
-static const Vec4f basis_vectors[6] = { Vec4f(0,1,0,0), Vec4f(0,0,1,0), Vec4f(0,0,1,0), Vec4f(1,0,0,0), Vec4f(1,0,0,0), Vec4f(0,1,0,0) };
-
-
 // Update object placement beam - a beam that goes from the object to what's below it.
 // Also updates axis arrows and rotation arc handles.
 // Also updates preview AABB for decal objects.
@@ -3933,77 +3934,9 @@ void GUIClient::updateSelectedObjectPlacementBeamAndGizmos()
 		if(opengl_engine->isObjectAdded(ob_placement_marker))
 			opengl_engine->updateObjectTransformData(*ob_placement_marker);
 
-		//----------------------- Place x, y, z axis arrows. -----------------------
-		if(axis_and_rot_obs_enabled)
-		{
-			const Vec4f use_ob_origin = opengl_ob->ob_to_world_matrix.getColumn(3);
-			const Vec4f cam_to_ob = use_ob_origin - cam_controller.getPosition().toVec4fPoint();
-			const float control_scale = cam_to_ob.length() * 0.2f;
-
-			const Vec4f arrow_origin = use_ob_origin;
-			const float arrow_len = control_scale;
-
-			axis_arrow_segments[0] = LineSegment4f(arrow_origin, arrow_origin + Vec4f(cam_to_ob[0] > 0 ? -arrow_len : arrow_len, 0, 0, 0)); // Put arrows on + or - x axis, facing towards camera.
-			axis_arrow_segments[1] = LineSegment4f(arrow_origin, arrow_origin + Vec4f(0, cam_to_ob[1] > 0 ? -arrow_len : arrow_len, 0, 0));
-			axis_arrow_segments[2] = LineSegment4f(arrow_origin, arrow_origin + Vec4f(0, 0, cam_to_ob[2] > 0 ? -arrow_len : arrow_len, 0));
-
-			//axis_arrow_segments[3] = LineSegment4f(arrow_origin, arrow_origin + Vec4f(arrow_len, 0, 0, 0)); // Put arrows on + or - x axis, facing towards camera.
-			//axis_arrow_segments[4] = LineSegment4f(arrow_origin, arrow_origin + Vec4f(0, arrow_len, 0, 0));
-			//axis_arrow_segments[5] = LineSegment4f(arrow_origin, arrow_origin + Vec4f(0, 0, arrow_len, 0));
-
-			for(int i=0; i<NUM_AXIS_ARROWS; ++i)
-			{
-				axis_arrow_objects[i]->ob_to_world_matrix = OpenGLEngine::arrowObjectTransform(axis_arrow_segments[i].a, axis_arrow_segments[i].b, arrow_len);
-				if(opengl_engine->isObjectAdded(axis_arrow_objects[i]))
-					opengl_engine->updateObjectTransformData(*axis_arrow_objects[i]);
-			}
-
-			//----------------------- Update rotation control handle arcs -----------------------
-			const Vec4f arc_centre = use_ob_origin;
-			const float arc_radius = control_scale * 0.7f; // Make the arcs not stick out so far from the centre as the arrows.
-
-			for(int i=0; i<3; ++i)
-			{
-				const Vec4f basis_a = basis_vectors[i*2];
-				const Vec4f basis_b = basis_vectors[i*2 + 1];
-
-				const Vec4f to_cam = cam_controller.getPosition().toVec4fPoint() - arc_centre;
-				const float to_cam_angle = safeATan2(dot(basis_b, to_cam), dot(basis_a, to_cam)); // angle in basis_a-basis_b plane
-
-				// Position the rotation arc so its oriented towards the camera, unless the user is currently holding and dragging the arc.
-				float angle = to_cam_angle;
-				if(grabbed_axis >= NUM_AXIS_ARROWS)
-				{
-					int grabbed_rot_axis = grabbed_axis - NUM_AXIS_ARROWS;
-					if(i == grabbed_rot_axis)
-						angle = grabbed_angle + grabbed_arc_angle_offset;
-				}
-
-				// Position the arc line segments used for mouse picking.
-				const float start_angle = angle - arc_handle_half_angle - 0.1f; // Extend a little so the arrow heads can be selected
-				const float end_angle   = angle + arc_handle_half_angle + 0.1f;
-
-				const size_t N = 32;
-				rot_handle_lines[i].resize(N);
-				for(size_t z=0; z<N; ++z)
-				{
-					const float theta_0 = start_angle + (end_angle - start_angle) * z       / N;
-					const float theta_1 = start_angle + (end_angle - start_angle) * (z + 1) / N;
-
-					const Vec4f p0 = arc_centre + basis_a * cos(theta_0) * arc_radius + basis_b * sin(theta_0) * arc_radius;
-					const Vec4f p1 = arc_centre + basis_a * cos(theta_1) * arc_radius + basis_b * sin(theta_1) * arc_radius;
-
-					(rot_handle_lines[i])[z] = LineSegment4f(p0, p1);
-				}
-
-				rot_handle_arc_objects[i]->ob_to_world_matrix = Matrix4f::translationMatrix(arc_centre) *
-					Matrix4f::rotationMatrix(crossProduct(basis_a, basis_b), angle - arc_handle_half_angle) * Matrix4f(basis_a, basis_b, crossProduct(basis_a, basis_b), Vec4f(0, 0, 0, 1))
-					* Matrix4f::uniformScaleMatrix(arc_radius);
-
-				if(opengl_engine->isObjectAdded(rot_handle_arc_objects[i]))
-					opengl_engine->updateObjectTransformData(*rot_handle_arc_objects[i]);
-			}
-		}
+		//----------------------- Update x, y, z axis arrows and rotation arcs. -----------------------
+		if(transform_gizmo)
+			transform_gizmo->update(opengl_ob->ob_to_world_matrix.getColumn(3));
 	}
 
 	if(selected_ob && selected_ob->edit_aabb)
@@ -5503,7 +5436,7 @@ void GUIClient::updateDiagnosticAABBForObject(WorldObject* ob)
 			}
 			else
 			{
-				ob->diagnostic_text_view->setText(*this->gl_ui, diag_text);
+				ob->diagnostic_text_view->setText(diag_text);
 
 				Vec2f normed_coords;
 				const bool visible = getGLUICoordsForPoint((aabb_min_ws + aabb_max_ws) * 0.5f, normed_coords);
@@ -5787,17 +5720,21 @@ void GUIClient::timerEvent(const MouseCursorState& mouse_cursor_state)
 		scripted_ob_proximity_checker.think(cam_controller.getPosition().toVec4fPoint(), lock);
 	}
 
+
+	timer_queue.think();
+
+
 	// Do Lua timer callbacks
 	if(false) // TEMP 
 	{
 		WorldStateLock lock(this->world_state->mutex);
 
 		const double cur_time = total_timer.elapsed();
-		timer_queue.update(cur_time, /*triggered_timers_out=*/temp_triggered_timers);
+		script_timer_queue.update(cur_time, /*triggered_timers_out=*/temp_triggered_timers);
 
 		for(size_t i=0; i<temp_triggered_timers.size(); ++i)
 		{
-			TimerQueueTimer& timer = temp_triggered_timers[i];
+			ScriptTimerQueueTimer& timer = temp_triggered_timers[i];
 			
 			LuaScriptEvaluator* script_evaluator = timer.lua_script_evaluator.getPtrIfAlive();
 			if(script_evaluator)
@@ -5812,7 +5749,7 @@ void GUIClient::timerEvent(const MouseCursorState& mouse_cursor_state)
 					{
 						// Re-insert timer with updated trigger time
 						timer.tigger_time = cur_time + timer.period;
-						timer_queue.addTimer(cur_time, timer);
+						script_timer_queue.addTimer(cur_time, timer);
 					}
 					else // Else if timer was a one-shot timer, 'destroy' it.
 					{
@@ -7496,6 +7433,7 @@ void GUIClient::timerEvent(const MouseCursorState& mouse_cursor_state)
 	}
 
 
+
 	{
 		// Show a decibel level: http://msp.ucsd.edu/techniques/v0.08/book-html/node6.html
 		// cur_level = 0.01 gives log_10(0.01 / 0.01) = 0.
@@ -8632,19 +8570,15 @@ void GUIClient::setThirdPersonCameraPosition(double dt)
 		Vec4f head_pos;
 		Vec4f left_eye_pos, right_eye_pos;
 		head_pos = cam_controller.getFirstPersonPosition().toVec4fPoint(); // default
-		if(world_state.nonNull())
+		if(world_state)
 		{
-			Lock lock(this->world_state->mutex);
-			for(auto it = this->world_state->avatars.begin(); it != this->world_state->avatars.end(); ++it)
+			WorldStateLock lock(this->world_state->mutex);
+			const Avatar* avatar = getOurAvatar(lock);
+			if(avatar)
 			{
-				const Avatar* avatar = it->second.getPointer();
-				if(avatar->isOurAvatar())
-				{
-
-					head_pos = avatar->graphics.getLastHeadPosition();
-					left_eye_pos = avatar->graphics.getLastLeftEyePosition();
-					right_eye_pos = avatar->graphics.getLastRightEyePosition();
-				}
+				head_pos = avatar->graphics.getLastHeadPosition();
+				left_eye_pos = avatar->graphics.getLastLeftEyePosition();
+				right_eye_pos = avatar->graphics.getLastRightEyePosition();
 			}
 		}
 		
@@ -9804,6 +9738,7 @@ void GUIClient::handleMessages(double global_time, double cur_time)
 									load_model_task->loaded_buffer = m->loaded_buffer;
 									load_model_task->worker_allocator = worker_allocator;
 									load_model_task->upload_thread = opengl_upload_thread;
+									load_model_task->ob_to_world_matrix = Matrix4f::identity();
 
 									// conPrint("handling ResourceDownloadedMessage: making LoadModelTask for " + URL);
 
@@ -11194,23 +11129,18 @@ void GUIClient::thirdPersonCameraToggled(bool enabled)
 		this->setThirdPersonCameraPosition(/*dt=*/1/60.f); // Update cam_controller->third_person_cam_position etc.
 
 		// Add our avatar model. Do this by marking it as dirty.
-		Lock lock(this->world_state->mutex);
-		auto res = this->world_state->avatars.find(this->client_avatar_uid);
-		if(res != this->world_state->avatars.end())
-		{
-			Avatar* avatar = res->second.getPointer();
+		WorldStateLock lock(this->world_state->mutex);
+		Avatar* avatar = getOurAvatar(lock);
+		if(avatar)
 			avatar->other_dirty = true;
-		}
 	}
 	else
 	{
 		// Remove our avatar model
-		Lock lock(this->world_state->mutex);
-		auto res = this->world_state->avatars.find(this->client_avatar_uid);
-		if(res != this->world_state->avatars.end())
+		WorldStateLock lock(this->world_state->mutex);
+		Avatar* avatar = getOurAvatar(lock);
+		if(avatar)
 		{
-			Avatar* avatar = res->second.getPointer();
-
 			avatar->graphics.destroy(*opengl_engine, *physics_world, /*destroy gear models=*/true);
 
 			// Remove nametag OpenGL object
@@ -12766,32 +12696,18 @@ void GUIClient::posAndRot3DControlsToggled(bool enabled)
 {
 	if(enabled)
 	{
-		if(selected_ob.nonNull())
+		if(selected_ob)
 		{
 			const bool have_edit_permissions = objectModificationAllowed(*this->selected_ob);
 
 			// Add an object placement beam
 			if(have_edit_permissions)
-			{
-				for(int i = 0; i < NUM_AXIS_ARROWS; ++i)
-					opengl_engine->addObject(axis_arrow_objects[i]);
-
-				for(int i = 0; i < 3; ++i)
-					opengl_engine->addObject(rot_handle_arc_objects[i]);
-
-				axis_and_rot_obs_enabled = true;
-			}
+				transform_gizmo = new TransformGizmo(opengl_engine.ptr(), this->selected_ob->pos.toVec4fPoint());
 		}
 	}
 	else
 	{
-		for(int i = 0; i < NUM_AXIS_ARROWS; ++i)
-			opengl_engine->removeObject(this->axis_arrow_objects[i]);
-
-		for(int i = 0; i < 3; ++i)
-			opengl_engine->removeObject(this->rot_handle_arc_objects[i]);
-
-		axis_and_rot_obs_enabled = false;
+		transform_gizmo = nullptr;
 	}
 }
 
@@ -12958,19 +12874,16 @@ void GUIClient::visitSubURL(const std::string& URL, bool push_prev_URL_on_nav_st
 	// Enable materialise effect on our avatar
 	{
 		WorldStateLock lock(this->world_state->mutex);
-		for(auto it = this->world_state->avatars.begin(); it != this->world_state->avatars.end(); ++it)
+		Avatar* avatar = getOurAvatar(lock);
+		if(avatar && avatar->graphics.skinned_gl_ob)
 		{
-			Avatar* avatar = it->second.getPointer();
-			if(avatar->isOurAvatar() && avatar->graphics.skinned_gl_ob)
+			const float current_time = (float)Clock::getTimeSinceInit();
+			for(size_t z=0; z<avatar->graphics.skinned_gl_ob->materials.size(); ++z)
 			{
-				const float current_time = (float)Clock::getTimeSinceInit();
-				for(size_t z=0; z<avatar->graphics.skinned_gl_ob->materials.size(); ++z)
-				{
-					avatar->graphics.skinned_gl_ob->materials[z].materialise_effect = true;
-					avatar->graphics.skinned_gl_ob->materials[z].materialise_start_time = current_time;
-				}
-				opengl_engine->objectMaterialsUpdated(*avatar->graphics.skinned_gl_ob);
+				avatar->graphics.skinned_gl_ob->materials[z].materialise_effect = true;
+				avatar->graphics.skinned_gl_ob->materials[z].materialise_start_time = current_time;
 			}
+			opengl_engine->objectMaterialsUpdated(*avatar->graphics.skinned_gl_ob);
 		}
 	}
 }
@@ -13503,200 +13416,15 @@ void GUIClient::checkCreateManagersAndMinimap()
 }
 
 
-static float sensorWidth() { return 0.035f; }
-static float lensSensorDist() { return 0.025f; }
-
-
 Vec4f GUIClient::getDirForPixelTrace(int pixel_pos_x, int pixel_pos_y) const
 {
-	const Vec4f forwards = cam_controller.getForwardsVec().toVec4fVector();
-	const Vec4f right = cam_controller.getRightVec().toVec4fVector();
-	const Vec4f up = cam_controller.getUpVec().toVec4fVector();
-
-	const float sensor_width = ::sensorWidth();
-	const float sensor_height = sensor_width / opengl_engine->getViewPortAspectRatio();//ui->glWidget->viewport_aspect_ratio;
-	const float lens_sensor_dist = ::lensSensorDist();
-
-	const float gl_w = (float)opengl_engine->getViewPortWidth();
-	const float gl_h = (float)opengl_engine->getViewPortHeight();
-
-	const float s_x = sensor_width  * (float)(pixel_pos_x - gl_w/2) / gl_w;  // dist right on sensor from centre of sensor
-	const float s_y = sensor_height * (float)(pixel_pos_y - gl_h/2) / gl_h; // dist down on sensor from centre of sensor
-
-	const float r_x = s_x / lens_sensor_dist;
-	const float r_y = s_y / lens_sensor_dist;
-
-	const Vec4f dir = normalise(forwards + right * r_x - up * r_y);
-	return dir;
+	return opengl_engine->pixelToRayDirWS(Vec2f((float) pixel_pos_x, (float)pixel_pos_y));
 }
 
 
-/*
-Let line coords in ws be p_ws(t) = a + b * t
-
-pixel coords for a point p_ws are
-
-cam_to_p = p_ws - cam_origin
-
-r_x =  dot(cam_to_p, cam_right) / dot(cam_to_p, cam_forw)
-r_y = -dot(cam_to_p, cam_up)    / dot(cam_to_p, cam_forw)
-
-and
-
-pixel_x = gl_w * (lens_sensor_dist / sensor_width  * r_x + 1/2)
-pixel_y = gl_h * (lens_sensor_dist / sensor_height * r_y + 1/2)
-
-let R = lens_sensor_dist / sensor_width
-
-so 
-
-pixel_x = gl_w * (R *  dot(p_ws - cam_origin, cam_right) / dot(p_ws - cam_origin, cam_forw) + 1/2)
-pixel_y = gl_h * (R * -dot(p_ws - cam_origin, cam_up)    / dot(p_ws - cam_origin, cam_forw) + 1/2)
-
-pixel_x = gl_w * (R *  dot(a + b * t - cam_origin, cam_right) / dot(a + b * t - cam_origin, cam_forw) + 1/2)
-pixel_y = gl_h * (R * -dot(a + b * t - cam_origin, cam_up)    / dot(a + b * t - cam_origin, cam_forw) + 1/2)
-
-We know pixel_x and pixel_y, want to solve for t.
-
-pixel_x = gl_w * (R * dot(a + b * t - cam_origin, cam_right) / dot(a + b * t - cam_origin, cam_forw) + 1/2)
-pixel_x/gl_w = R * dot(a + b * t - cam_origin, cam_right) / dot(a + b * t - cam_origin, cam_forw) + 1/2
-pixel_x/gl_w = R * [dot(a - cam_origin, cam_right) + dot(b * t, cam_right)] / [dot(a - cam_origin, cam_forw) + dot(b * t, cam_forw)] + 1/2
-pixel_x/gl_w - 1/2 = R  * [dot(a - cam_origin, cam_right) + dot(b * t, cam_right)] / [dot(a - cam_origin, cam_forw) + dot(b * t, cam_forw)]
-(pixel_x/gl_w - 1/2) / R = [dot(a - cam_origin, cam_right) + dot(b * t, cam_right)] / [dot(a - cam_origin, cam_forw) + dot(b * t, cam_forw)]
-
-let A = dot(a - cam_origin, cam_forw)
-let B = dot(b, cam_forw)
-let C = (pixel_x/gl_w - 1/2) / R
-let D = dot(a - cam_origin, cam_right)
-let E = dot(b, cam_right)
-
-so we get
-
-C = [D + dot(b * t, cam_right)] / [A + dot(b * t, cam_forw)]
-C = [D + dot(b, cam_right) * t] / [A + dot(b, cam_forw) * t]
-C = [D + E * t] / [A + B * t]
-[A + B * t] C = D + E * t
-AC + BCt = D + Et
-BCt - Et = D - AC
-t(BC - E) = D - AC
-t = (D - AC) / (BC - E)
-
-
-For y (used when all x coordinates are ~ the same)
-pixel_y = gl_h * (R * -dot(a + b * t - cam_origin, cam_up) / dot(a + b * t - cam_origin, cam_forw) + 1/2)
-pixel_y/gl_h = R * -dot(a + b * t - cam_origin, cam_up) / dot(a + b * t - cam_origin, cam_forw) + 1/2
-pixel_y/gl_h = R * -[dot(a - cam_origin, cam_up) + dot(b * t, cam_up)] / [dot(a - cam_origin, cam_forw) + dot(b * t, cam_forw)] + 1/2
-pixel_x/gl_w - 1/2 = R  * -[dot(a - cam_origin, cam_up) + dot(b * t, cam_up)] / [dot(a - cam_origin, cam_forw) + dot(b * t, cam_forw)]
-(pixel_x/gl_w - 1/2) / R = -[dot(a - cam_origin, cam_right) + dot(b * t, cam_right)] / [dot(a - cam_origin, cam_forw) + dot(b * t, cam_forw)]
-
-let A = dot(a - cam_origin, cam_forw)
-let B = dot(b, cam_forw)
-let C = (pixel_y/gl_h - 1/2) / R
-let D = dot(a - cam_origin, cam_up)
-let E = dot(b, cam_up)
-
-C = -[D + dot(b * t, cam_up)] / [A + dot(b * t, cam_forw)]
-C = -[D + dot(b, cam_right) * t] / [A + dot(b, cam_forw) * t]
-C = -[D + E * t] / [A + B * t]
-[A + B * t] C = -[D + E * t]
-AC + BCt = -D - Et
-BCt + Et = -D - AC
-t(BC + E) = -D - AC
-t = (-D - AC) / (BC + E)
-
-*/
-
-Vec4f GUIClient::pointOnLineWorldSpace(const Vec4f& p_a_ws, const Vec4f& p_b_ws, const Vec2f& pixel_coords) const
+bool GUIClient::getPixelForPoint(const Vec4f& point_ws, Vec2f& pixel_coords_out) const // Returns true if point is visible from camera.
 {
-	const Vec4f cam_origin = cam_controller.getPosition().toVec4fPoint();
-	const Vec4f cam_forw   = cam_controller.getForwardsVec().toVec4fVector();
-	const Vec4f cam_right  = cam_controller.getRightVec().toVec4fVector();
-	const Vec4f cam_up     = cam_controller.getUpVec().toVec4fVector();
-
-	const float sensor_width  = ::sensorWidth();
-	const float sensor_height = sensor_width / opengl_engine->getViewPortAspectRatio();//ui->glWidget->viewport_aspect_ratio;
-	const float lens_sensor_dist = ::lensSensorDist();
-
-	const float gl_w = (float)opengl_engine->getViewPortWidth(); // ui->glWidget->geometry().width();
-	const float gl_h = (float)opengl_engine->getViewPortHeight(); // ui->glWidget->geometry().height();
-
-	const Vec4f a = p_a_ws;
-	const Vec4f b = normalise(p_b_ws - p_a_ws);
-
-	float A = dot(a - cam_origin, cam_forw);
-	float B = dot(b, cam_forw);
-	float C = (pixel_coords.x/gl_w - 0.5f) * sensor_width / lens_sensor_dist;
-	float D = dot(a - cam_origin, cam_right);
-	float E = dot(b, cam_right);
-
-	const float denom = B*C - E;
-	float t;
-	if(fabs(denom) > 1.0e-4f)
-	{
-		t = (D - A*C) / denom;
-	}
-	else
-	{
-		// Work with y instead
-
-		A = dot(a - cam_origin, cam_forw);
-		B = dot(b, cam_forw);
-		C = (pixel_coords.y/gl_h - 0.5f) * sensor_height / lens_sensor_dist;
-		D = dot(a - cam_origin, cam_up);
-		E = dot(b, cam_up);
-
-		t = (-D - A*C) / (B*C + E);
-	}
-
-	return a + b * t;
-}
-
-
-/*
-s_x is distance left on sensor:
-s_x = sensor_width * (pixel_x - gl_w/2) / gl_w
-
-Let r_x = (cam_to_point, forw) / (cam_to_point, right)
-From similar triangles,
-r_x = s_x / lens_sensor_dist, where s_x is distance left on sensor.
-
-so
-r_x = sensor_width * (pixel_x - gl_w/2) / (gl_w * lens_sensor_dist)
-
-(gl_w * lens_sensor_dist) * r_x = sensor_width * (pixel_x - gl_w/2)
-gl_w * lens_sensor_dist * r_x = sensor_width * pixel_x - sensor_width * gl_w/2
-gl_w * lens_sensor_dist * r_x + sensor_width * gl_w/2 = sensor_width * pixel_x
-
-pixel_x = (gl_w * lens_sensor_dist * r_x + sensor_width * gl_w/2) / sensor_width
-pixel_x = gl_w * (lens_sensor_dist * r_x + sensor_width / 2) / sensor_width;
-pixel_x = gl_w * (lens_sensor_dist * r_x / sensor_width + 1/2);
-pixel_x = gl_w * (lens_sensor_dist / sensor_width * r_x + 1/2);
-*/
-bool GUIClient::getPixelForPoint(const Vec4f& point_ws, Vec2f& pixel_coords_out) const// Returns true if point is visible from camera.
-{
-	const Vec4f forwards = cam_controller.getForwardsVec().toVec4fVector();
-	const Vec4f right = cam_controller.getRightVec().toVec4fVector();
-	const Vec4f up = cam_controller.getUpVec().toVec4fVector();
-
-	const float sensor_width  = ::sensorWidth();
-	const float sensor_height = sensor_width / opengl_engine->getViewPortAspectRatio();//ui->glWidget->viewport_aspect_ratio;
-	const float lens_sensor_dist = ::lensSensorDist();
-
-	const float gl_w = (float)opengl_engine->getViewPortWidth(); // ui->glWidget->geometry().width();
-	const float gl_h = (float)opengl_engine->getViewPortHeight(); // ui->glWidget->geometry().height();
-
-	const Vec4f cam_to_point = point_ws - this->cam_controller.getPosition().toVec4fPoint();
-	if(dot(cam_to_point, forwards) < 0.001)
-		return false; // point behind camera.
-
-	const float r_x =  dot(cam_to_point, right) / dot(cam_to_point, forwards);
-	const float r_y = -dot(cam_to_point, up)    / dot(cam_to_point, forwards);
-
-	const float pixel_x = (gl_w * lens_sensor_dist * r_x + sensor_width  * gl_w/2) / sensor_width;
-	const float pixel_y = (gl_h * lens_sensor_dist * r_y + sensor_height * gl_h/2) / sensor_height;
-
-	pixel_coords_out = Vec2f(pixel_x, pixel_y);
-	return true;
+	return opengl_engine->worldSpacePosToPixel(point_ws, pixel_coords_out);
 }
 
 
@@ -13715,11 +13443,11 @@ so n_x = (r_x lens_sensor_dist) / (sensor_width/2) = 2 r_x lens_sensor_dist / se
 bool GUIClient::getGLUICoordsForPoint(const Vec4f& point_ws, Vec2f& coords_out) const// Returns true if point is visible from camera.
 {
 	const Vec4f forwards = cam_controller.getForwardsVec().toVec4fVector();
-	const Vec4f right = cam_controller.getRightVec().toVec4fVector();
-	const Vec4f up = cam_controller.getUpVec().toVec4fVector();
+	const Vec4f right    = cam_controller.getRightVec().toVec4fVector();
+	const Vec4f up       = cam_controller.getUpVec().toVec4fVector();
 
-	const float sensor_width  = ::sensorWidth();
-	const float lens_sensor_dist = ::lensSensorDist();
+	const float sensor_width     = opengl_engine->getCurrentScene()->use_sensor_width;
+	const float lens_sensor_dist = opengl_engine->getCurrentScene()->lens_sensor_dist;
 
 	const Vec4f cam_to_point = point_ws - this->cam_controller.getPosition().toVec4fPoint();
 	if(dot(cam_to_point, forwards) < 0.001)
@@ -13736,146 +13464,38 @@ bool GUIClient::getGLUICoordsForPoint(const Vec4f& point_ws, Vec2f& coords_out) 
 }
 
 
-// See https://math.stackexchange.com/questions/1036959/midpoint-of-the-shortest-distance-between-2-rays-in-3d
-// In particular this answer: https://math.stackexchange.com/a/2371053
-static inline Vec4f closestPointOnLineToRay(const LineSegment4f& line, const Vec4f& origin, const Vec4f& unitdir)
+// Delegate that connects TransformGizmo events to GUIClient's object editing.
+struct GUIClientGizmoDelegate : public GizmoDelegateInterface
 {
-	const Vec4f a = line.a;
-	const Vec4f b = normalise(line.b - line.a);
+	GUIClientGizmoDelegate(GUIClient* c) : client(c) {}
 
-	const Vec4f c = origin;
-	const Vec4f d = unitdir;
-
-	const float t = (dot(c - a, b) + dot(a - c, d) * dot(b, d)) / (1 - Maths::square(dot(b, d)));
-
-	return a + b * t;
-}
-
-
-static LineSegment4f clipLineSegmentToCameraFrontHalfSpace(const LineSegment4f& segment, const Planef& cam_front_plane)
-{
-	const float d_a = cam_front_plane.signedDistToPoint(segment.a);
-	const float d_b = cam_front_plane.signedDistToPoint(segment.b);
-
-	// If both endpoints are in front half-space, no clipping is required.  If both points are in back half-space, line segment is completely clipped.
-	// In this case just return the unclipped line segment.
-	if((d_a < 0 && d_b < 0) || (d_a > 0 && d_b > 0))
-		return segment;
-
-	/*
-	
-	a                  /         b
-	------------------/----------
-	d_a              /   d_b
-
-	*/
-	if(d_a > 0)
+	void onTranslationDrag(const Vec4f& total_translation, const Vec4f& desired_new_ob_pos) override
 	{
-		assert(d_b < 0);
-		const float frac = d_a / (d_a - d_b); // = d_a / (d_a + |d_b|)
-		return LineSegment4f(segment.a, Maths::lerp(segment.a, segment.b, frac));
-	}
-	else
-	{
-		assert(d_a < 0);
-		assert(d_b >= 0);
-		const float frac = -d_a / (-d_a + d_b); // = |d_a| / (|d_a| + d_b)
-		return LineSegment4f(segment.b, Maths::lerp(segment.a, segment.b, frac));
-	}
-}
-
-
-// Returns the axis index (integer in [0, 3)) of the closest axis arrow, or the axis index of the closest rotation arc handle (integer in [3, 6))
-// or -1 if no arrow or rotation arc close to pixel coords.
-// Also returns world space coords of the closest point.
-int GUIClient::mouseOverAxisArrowOrRotArc(const Vec2f& pixel_coords, Vec4f& closest_seg_point_ws_out) 
-{
-	if(!axis_and_rot_obs_enabled)
-		return -1;
-
-	const Vec2f clickpos = pixel_coords;
-
-	float closest_dist = 10000;
-	int closest_axis = -1;
-	const float max_selection_dist = 12;
-
-	// Test against axis arrows
-	for(int i=0; i<NUM_AXIS_ARROWS; ++i)
-	{
-		const LineSegment4f unclipped_segment = axis_arrow_segments[i];
-
-		// Clip line segment to camera front half-space, otherwise projection of segment endpoints to screenspace will fail.
-		const Planef cam_front_plane(/*point=*/this->cam_controller.getPosition().toVec4fPoint() + cam_controller.getForwardsVec().toVec4fVector() * 0.01f, /*normal=*/cam_controller.getForwardsVec().toVec4fVector());
-		const LineSegment4f segment = clipLineSegmentToCameraFrontHalfSpace(unclipped_segment, cam_front_plane);
-
-		Vec2f start_pixelpos, end_pixelpos; // pixel coords of line segment start and end.
-		bool start_visible = getPixelForPoint(segment.a, start_pixelpos);
-		bool end_visible   = getPixelForPoint(segment.b, end_pixelpos);
-
-		if(start_visible && end_visible)
-		{
-			const float d = pointLineSegmentDist(clickpos, start_pixelpos, end_pixelpos);
-
-			const Vec4f dir = getDirForPixelTrace((int)pixel_coords.x, (int)pixel_coords.y);
-			const Vec4f origin = cam_controller.getPosition().toVec4fPoint();
-
-			const Vec4f closest_line_pt = closestPointOnLineToRay(segment, origin, dir);
-
-			// As the axis arrow gets closer to the camera, it will appear larger.  Increase the selection distance (from arrow centre line to mouse point) accordingly.
-			const float cam_dist = closest_line_pt.getDist(origin);
-
-			const float gl_w = (float)opengl_engine->getViewPortWidth(); // ui->glWidget->geometry().width();
-			const float approx_radius_px = 0.03f * gl_w / cam_dist;
-			const float use_max_select_dist = myMax(max_selection_dist, approx_radius_px);
-
-			if(d <= closest_dist && d < use_max_select_dist)
-			{
-				closest_seg_point_ws_out = closest_line_pt;
-				closest_dist = d;
-				closest_axis = i;
-			}
-		}
+		if(client->selected_ob)
+			client->tryToMoveObject(client->selected_ob, desired_new_ob_pos);
 	}
 
-	// Test against rotation arc handles
-	for(int i=0; i<3; ++i)
+	void onRotationDrag(const Vec4f& axis, float total_angle_change, float delta_angle) override
 	{
-		for(size_t z=0; z<rot_handle_lines[i].size(); ++z)
-		{
-			const LineSegment4f segment = (rot_handle_lines[i])[z];
-
-			Vec2f start_pixelpos, end_pixelpos; // pixel coords of line segment start and end.
-			bool start_visible = getPixelForPoint(segment.a, start_pixelpos);
-			bool end_visible   = getPixelForPoint(segment.b, end_pixelpos);
-
-			if(start_visible && end_visible)
-			{
-				const float d = pointLineSegmentDist(clickpos, start_pixelpos, end_pixelpos);
-
-				const Vec4f dir = getDirForPixelTrace((int)pixel_coords.x, (int)pixel_coords.y);
-				const Vec4f origin = cam_controller.getPosition().toVec4fPoint();
-
-				const Vec4f closest_line_pt = closestPointOnLineToRay(segment, origin, dir);
-
-				// As the line segment gets closer to the camera, it will appear larger.  Increase the selection distance (from line to mouse point) accordingly.
-				const float cam_dist = closest_line_pt.getDist(origin);
-
-				const float gl_w = (float)opengl_engine->getViewPortWidth(); // ui->glWidget->geometry().width();
-				const float approx_radius_px = 0.02f * gl_w / cam_dist;
-				const float use_max_select_dist = myMax(max_selection_dist, approx_radius_px);
-
-				if(d <= closest_dist && d < use_max_select_dist)
-				{
-					closest_seg_point_ws_out = closest_line_pt;
-					closest_dist = d;
-					closest_axis = NUM_AXIS_ARROWS + i;
-				}
-			}
-		}
+		if(client->selected_ob)
+			client->rotateObject(client->selected_ob, axis, delta_angle);
 	}
 
-	return closest_axis;
-}
+	void onGrabStart(bool /*is_rotation*/) override
+	{
+		client->ui_interface->setCamRotationOnMouseDragEnabled(false);
+		if(client->selected_ob)
+			client->undo_buffer.startWorldObjectEdit(*client->selected_ob);
+	}
+
+	void onGrabEnd() override
+	{
+		if(client->selected_ob)
+			client->undo_buffer.finishWorldObjectEdit(*client->selected_ob);
+	}
+
+	GUIClient* client;
+};
 
 
 void GUIClient::mousePressed(MouseEvent& e)
@@ -13942,48 +13562,11 @@ void GUIClient::mousePressed(MouseEvent& e)
 		const bool have_edit_permissions = objectModificationAllowed(*this->selected_ob);
 
 		//if(!mouse_trace_hit_selected_ob)
-		if(have_edit_permissions) // The axis arrows and rotation arcs are only visible if we have object modification permissions.
+		if(have_edit_permissions && transform_gizmo) // The axis arrows and rotation arcs are only visible if we have object modification permissions.
 		{
-			grabbed_axis = mouseOverAxisArrowOrRotArc(Vec2f((float)e.cursor_pos.x, (float)e.cursor_pos.y), /*closest_seg_point_ws_out=*/this->grabbed_point_ws);
-
-			if(grabbed_axis >= 0) // If we grabbed an arrow or rotation arc:
-			{
-				this->ob_origin_at_grab = this->selected_ob->pos.toVec4fPoint();
-
-				// Usually when the mouse button is held down, moving the mouse rotates the camera.
-				// But when we have grabbed an arrow or rotation arc, it moves the object instead.  So don't rotate the camera.
-				ui_interface->setCamRotationOnMouseDragEnabled(false);
-
-				undo_buffer.startWorldObjectEdit(*this->selected_ob);
-			}
-
-			if(grabbed_axis >= NUM_AXIS_ARROWS) // If we grabbed a rotation arc:
-			{
-				const Vec4f arc_centre = this->selected_ob->opengl_engine_ob->ob_to_world_matrix.getColumn(3);
-
-				const int rot_axis = grabbed_axis - NUM_AXIS_ARROWS;
-				const Vec4f basis_a = basis_vectors[rot_axis*2];
-				const Vec4f basis_b = basis_vectors[rot_axis*2 + 1];
-
-				// Intersect ray from current mouse position with plane formed by rotation basis vectors
-				const Vec4f origin = cam_controller.getPosition().toVec4fPoint();
-				const Vec4f dir = getDirForPixelTrace(e.cursor_pos.x, e.cursor_pos.y);
-
-				Planef plane(arc_centre, crossProduct(basis_a, basis_b));
-
-				const float t = plane.rayIntersect(origin, dir);
-				const Vec4f plane_p = origin + dir * t;
-
-				const float angle = safeATan2(dot(plane_p - arc_centre, basis_b), dot(plane_p - arc_centre, basis_a));
-
-				const Vec4f to_cam = cam_controller.getPosition().toVec4fPoint() - arc_centre;
-				const float to_cam_angle = safeATan2(dot(basis_b, to_cam), dot(basis_a, to_cam)); // angle in basis_a-basis_b plane
-
-				this->grabbed_angle = this->original_grabbed_angle = angle;
-				this->grabbed_arc_angle_offset = to_cam_angle - this->original_grabbed_angle;
-
-				//opengl_engine->addObject(opengl_engine->makeAABBObject(plane_p, plane_p + Vec4f(0.05f, 0.05f, 0.05f, 0), Colour4f(1, 0, 1, 1)));
-			}
+			GUIClientGizmoDelegate delegate(this);
+			const Vec4f ob_pos = this->selected_ob->pos.toVec4fPoint();
+			transform_gizmo->mousePressed(Vec2f((float)e.cursor_pos.x, (float)e.cursor_pos.y), ob_pos, &delegate);
 		}
 	}
 
@@ -14084,7 +13667,7 @@ void GUIClient::mousePressed(MouseEvent& e)
 	}
 
 	// If we didn't grab any control, we will be in camera-rotate mode, so hide the mouse cursor.
-	if(grabbed_axis < 0)
+	if(!(transform_gizmo && transform_gizmo->isGrabbed()))
 	{
 		ui_interface->hideCursor();
 	}
@@ -14100,11 +13683,11 @@ void GUIClient::mouseReleased(MouseEvent& e)
 			return;
 	}
 
-	// If we were dragging an object along a movement axis, we have released the mouse button and hence finished the movement.  un-grab the axis.
-	if(grabbed_axis != -1 && selected_ob.nonNull())
+	// If we were dragging an object along a movement axis/arc, finish the undo edit.
+	if(transform_gizmo)
 	{
-		undo_buffer.finishWorldObjectEdit(*selected_ob);
-		grabbed_axis = -1;
+		GUIClientGizmoDelegate delegate(this);
+		transform_gizmo->mouseReleased(&delegate);
 	}
 
 	// Trace through scene to see if we are clicking on a web-view.  Send mouseReleased events to the web view if so.
@@ -14393,35 +13976,6 @@ void GUIClient::doObjectSelectionTraceForMouseEvent(MouseEvent& e)
 }
 
 
-inline static bool clipLineToPlaneBackHalfSpace(const Planef& plane, Vec4f& a, Vec4f& b)
-{
-	const float ad = plane.signedDistToPoint(a);
-	const float bd = plane.signedDistToPoint(b);
-	if(ad > 0 && bd > 0) // If both endpoints not in back half space:
-		return false;
-
-	if(ad <= 0 && bd <= 0) // If both endpoints in back half space:
-		return true;
-
-	// Else line straddles plane
-	// ad + (bd - ad) * t = 0
-	// t = -ad / (bd - ad)
-	// t = ad / -(bd - ad)
-	// t = ad / (-bd + ad)
-	// t = ad / (ad - bd)
-
-	const float t = ad / (ad - bd);
-	const Vec4f on_plane_p = a + (b - a) * t;
-	//assert(epsEqual(plane.signedDistToPoint(on_plane_p), 0.f));
-
-	if(ad <= 0) // If point a lies in back half space:
-		b = on_plane_p; // update point b
-	else
-		a = on_plane_p; // else point b lies in back half space, so update point a
-	return true;
-}
-
-
 // cursor_pos is in glWidget local coordinates.
 // mouse_event is non-null if this is called from a mouse-move event
 // If cursor_is_mouse_cursor is false, the cursor is the crosshair.
@@ -14440,6 +13994,8 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 		bool show_mouseover_info_ui = false;
 		if(results.hit_object)
 		{
+			const string_view use_action_button = cursor_is_mouse_cursor ? "[E]" : "[A] on gamepad";
+
 			if(results.hit_object->userdata && results.hit_object->userdata_type == 0) // If we hit an object:
 			{
 				WorldObject* ob = static_cast<WorldObject*>(results.hit_object->userdata);
@@ -14461,7 +14017,7 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 				}
 				else 
 				{
-					if(!ob->target_url.empty() && (ob->web_view_data.isNull() && ob->browser_vid_player.isNull())) // If the object has a target URL (and is not a web-view and not a video object):
+					if(!ob->target_url.empty() && !ob->isGearItem() && (ob->web_view_data.isNull() && ob->browser_vid_player.isNull())) // If the object has a target URL (and is not a web-view and not a video object):
 					{
 						// If the mouse-overed ob is currently selected, and is editable, don't show the hyperlink, because 'E' is the key to pick up the object.
 						const bool selected_editable_ob = (selected_ob.ptr() == ob) && objectModificationAllowed(*ob);
@@ -14476,7 +14032,14 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 							if(ob->isPortal())
 								ob_info_ui.showMessage("Walk through to visit " + trimmed_URL, cursor_gl_coords);
 							else
-								ob_info_ui.showMessage("Press [E] to open " + trimmed_URL, cursor_gl_coords);
+							{
+								StackStringBuilder builder(this->stack_allocator);
+								builder.append("Press ");
+								builder.append(use_action_button);
+								builder.append(" to open ");
+								builder.append(trimmed_URL);
+								ob_info_ui.showMessage(builder.getStringView(), cursor_gl_coords);
+							}
 
 							show_mouseover_info_ui = true;
 						}
@@ -14484,60 +14047,83 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 
 					if((ob->object_type == WorldObject::ObjectType_Seat) && seat_sitting_on.isNull() && vehicle_controller_inside.isNull() && !isAvatarSittingOnSeat(*ob))
 					{
-						ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to sit" : "Press [A] on gamepad to sit", cursor_gl_coords);
+						StackStringBuilder builder(this->stack_allocator);
+						builder.append("Press ");
+						builder.append(use_action_button);
+						builder.append(" to sit");
+						ob_info_ui.showMessage(builder.getStringView(), cursor_gl_coords);
 						show_mouseover_info_ui = true;
 					}
 
-				if(ob && ob->vehicle_script.nonNull() && ob->vehicle_script->settings.nonNull() && vehicle_controller_inside.isNull()) // If this is a vehicle, and we are not already in a vehicle:
-				{
-					// If the vehicle is rightable (e.g. bike), display righting message if the vehicle is upside down.  Otherwise just display enter message.
-				// Additional safety check: verify ob fields are valid before computing matrix
-				if(ob->pos.isFinite() && ob->axis.isFinite() && ::isFinite(ob->angle) && ob->scale.isFinite())
-				{
-					const Vec4f up_z_up(0,0,1,0);
-					const Vec4f vehicle_up_os = ob->vehicle_script->getZUpToModelSpaceTransform() * up_z_up;
-					const Vec4f vehicle_up_ws = normalise(obToWorldMatrix(*ob) * vehicle_up_os);
-					const bool upright = dot(vehicle_up_ws, up_z_up) > 0.5f;
-
-					if(upright || !ob->vehicle_script->isRightable())
-						ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to enter vehicle" : "Press [A] on gamepad to enter vehicle", cursor_gl_coords);
-					else
-						ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to right vehicle" : "Press [A] on gamepad to right vehicle", cursor_gl_coords);
-					show_mouseover_info_ui = true;
-				}
-				}
-
-				if(ob->event_handlers && ob->event_handlers->onUserUsedObject_handlers.nonEmpty())
-				{
-					ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to use" : "Press [A] on gamepad to use", cursor_gl_coords);
-					show_mouseover_info_ui = true;
-				}
-
-					if(show_mouseover_info_ui)
+					if(ob->object_type == WorldObject::ObjectType_GearItem)
 					{
-						// Remove outline around any previously mouse-overed object (unless it is the main selected ob)
-						if(this->mouseover_selected_gl_ob.nonNull())
+						StackStringBuilder builder(this->stack_allocator);
+						builder.append("Press ");
+						builder.append(use_action_button);
+						builder.append(" to pick up gear item '");
+						builder.append(ob->getGearItemName());
+						builder.append("'");
+						ob_info_ui.showMessage(builder.getStringView(), cursor_gl_coords);
+						show_mouseover_info_ui = true;
+					}
+
+						if(ob->vehicle_script.nonNull() && ob->vehicle_script->settings.nonNull() && vehicle_controller_inside.isNull()) // If this is a vehicle, and we are not already in a vehicle:
 						{
-							if(ob != this->selected_ob.ptr()) 
-								opengl_engine->deselectObject(this->mouseover_selected_gl_ob);
-							this->mouseover_selected_gl_ob = NULL;
+							// Additional safety check: verify transform fields are valid before computing matrix.
+							if(ob->pos.isFinite() && ob->axis.isFinite() && ::isFinite(ob->angle) && ob->scale.isFinite())
+							{
+								const Vec4f up_z_up(0,0,1,0);
+								const Vec4f vehicle_up_os = ob->vehicle_script->getZUpToModelSpaceTransform() * up_z_up;
+								const Vec4f vehicle_up_ws = normalise(obToWorldMatrix(*ob) * vehicle_up_os);
+								const bool upright = dot(vehicle_up_ws, up_z_up) > 0.5f;
+
+								StackStringBuilder builder(this->stack_allocator);
+								builder.append("Press ");
+								builder.append(use_action_button);
+								builder.append(upright || !ob->vehicle_script->isRightable() ? " to enter vehicle" : " to right vehicle");
+								ob_info_ui.showMessage(builder.getStringView(), cursor_gl_coords);
+								show_mouseover_info_ui = true;
+							}
 						}
 
-						// Add outline around object
-						if(ob->opengl_engine_ob.nonNull())
+						if(ob->event_handlers && ob->event_handlers->onUserUsedObject_handlers.nonEmpty())
 						{
-							this->mouseover_selected_gl_ob = ob->opengl_engine_ob;
-							opengl_engine->selectObject(ob->opengl_engine_ob);
+							StackStringBuilder builder(this->stack_allocator);
+							builder.append("Press ");
+							builder.append(use_action_button);
+							builder.append(" to use");
+							ob_info_ui.showMessage(builder.getStringView(), cursor_gl_coords);
+							show_mouseover_info_ui = true;
 						}
-					}
-				}
+
+						if(show_mouseover_info_ui)
+						{
+							// Remove outline around any previously mouse-overed object (unless it is the main selected ob)
+							if(this->mouseover_selected_gl_ob.nonNull())
+							{
+								if(ob != this->selected_ob.ptr())
+									opengl_engine->deselectObject(this->mouseover_selected_gl_ob);
+								this->mouseover_selected_gl_ob = NULL;
+							}
+
+							// Add outline around object
+							if(ob->opengl_engine_ob.nonNull())
+							{
+								this->mouseover_selected_gl_ob = ob->opengl_engine_ob;
+								opengl_engine->selectObject(ob->opengl_engine_ob);
+							}
+						}
 			}
 			else if(results.hit_object->userdata && results.hit_object->userdata_type == 3) // If we hit an avatar:
 			{
 				const Avatar* avatar = (const Avatar*)results.hit_object->userdata;
 				if(avatar && !avatar->current_gesture_name.empty())
 				{
-					ob_info_ui.showMessage(cursor_is_mouse_cursor ? "Press [E] to join gesture" : "Press [A] to join gesture", cursor_gl_coords);
+					StackStringBuilder builder(this->stack_allocator);
+					builder.append("Press ");
+					builder.append(use_action_button);
+					builder.append(" to join gesture");
+					ob_info_ui.showMessage(builder.getStringView(), cursor_gl_coords);
 					show_mouseover_info_ui = true;
 				}
 			}
@@ -14582,157 +14168,26 @@ void GUIClient::mouseMoved(MouseEvent& mouse_event)
 		updateInfoUIForMousePosition(mouse_event.cursor_pos, mouse_event.gl_coords, &mouse_event, /*cursor_is_mouse_cursor=*/true);
 
 
-	if(selected_ob.nonNull() && grabbed_axis >= 0 && grabbed_axis < NUM_AXIS_ARROWS)
+	if(selected_ob.nonNull())
 	{
-		// If we have have grabbed an axis and are moving it:
-		//conPrint("Grabbed axis " + toString(grabbed_axis));
-
-		const Vec4f origin = cam_controller.getPosition().toVec4fPoint();
-		//const Vec4f dir = getDirForPixelTrace(e->pos().x(), e->pos().y());
-
-		Vec2f start_pixelpos, end_pixelpos; // pixel coords of line segment start and end.
-
-		// Get line segment in world space along the grabbed axis, extended out in each direction for some distance.
-		const float MAX_MOVE_DIST = 100;
-		const Vec4f line_dir = normalise(axis_arrow_segments[grabbed_axis].b - axis_arrow_segments[grabbed_axis].a);
-		Vec4f use_line_start = axis_arrow_segments[grabbed_axis].a - line_dir * MAX_MOVE_DIST;
-		Vec4f use_line_end   = axis_arrow_segments[grabbed_axis].a + line_dir * MAX_MOVE_DIST;
-
-		// Clip line in 3d world space to the half-space in front of camera.
-		// We do this so we can get a valid projection of the line into 2d pixel space.
-		const Vec4f camforw_ws = cam_controller.getForwardsVec().toVec4fVector();
-		Planef plane(origin + camforw_ws * 0.1f, -camforw_ws);
-		const bool visible = clipLineToPlaneBackHalfSpace(plane, use_line_start, use_line_end);
-		assertOrDeclareUsed(visible);
-
-		// Project 3d world space line segment into 2d pixel space.
-		bool start_visible = getPixelForPoint(use_line_start, start_pixelpos);
-		bool end_visible   = getPixelForPoint(use_line_end,   end_pixelpos);
-
-		assert(start_visible && end_visible);
-		if(start_visible && end_visible)
+		GUIClientGizmoDelegate delegate(this);
+		const Vec4f ob_pos = selected_ob->pos.toVec4fPoint();
+		const float grid_spacing = ui_interface->snapToGridCheckBoxChecked() ? (float)ui_interface->gridSpacing() : 0.f;
+		if(transform_gizmo && transform_gizmo->mouseMoved(Vec2f((float)mouse_event.cursor_pos.x, (float)mouse_event.cursor_pos.y), ob_pos, &delegate, grid_spacing))
 		{
-			const Vec2f mousepos((float)mouse_event.cursor_pos.x, (float)mouse_event.cursor_pos.y);
-
-			const Vec2f closest_pixel = closestPointOnLineSegment(mousepos, start_pixelpos, end_pixelpos); // Closest pixel coords of point on 2d line to mouse pointer.
-
-			// Project point on 2d line into 3d space along the line
-			Vec4f new_p = pointOnLineWorldSpace(axis_arrow_segments[grabbed_axis].a, axis_arrow_segments[grabbed_axis].b, closest_pixel);
-
-			// opengl_engine->addObject(opengl_engine->makeAABBObject(new_p, new_p + Vec4f(0.1f,0.1f,0.1f,0), Colour4f(0.9, 0.2, 0.5, 1.f)));
-
-			Vec4f delta_p = new_p - grabbed_point_ws; // Desired change in position from when we grabbed the object
-
-			assert(new_p.isFinite());
-
-			Vec4f tentative_new_ob_p = ob_origin_at_grab + delta_p;
-
-			if(tentative_new_ob_p.getDist(ob_origin_at_grab) > MAX_MOVE_DIST)
-				tentative_new_ob_p = ob_origin_at_grab + (tentative_new_ob_p - ob_origin_at_grab) * MAX_MOVE_DIST / (tentative_new_ob_p - ob_origin_at_grab).length();
-
-			assert(tentative_new_ob_p.isFinite());
-
-			// Snap to grid
-			if(ui_interface->snapToGridCheckBoxChecked())
-			{
-				const double grid_spacing = ui_interface->gridSpacing();
-				if(grid_spacing > 1.0e-5)
-					tentative_new_ob_p[grabbed_axis] = (float)Maths::roundToMultipleFloating((double)tentative_new_ob_p[grabbed_axis], grid_spacing);
-			}
-
-			//Matrix4f tentative_new_to_world = this->selected_ob->opengl_engine_ob->ob_to_world_matrix;
-			//tentative_new_to_world.setColumn(3, tentative_new_ob_p);
-			//tryToMoveObject(tentative_new_to_world);
-			tryToMoveObject(this->selected_ob, tentative_new_ob_p);
-
-			if(this->selected_ob_picked_up)
+			if(selected_ob_picked_up)
 			{
 				// Update selection_vec_cs if we have picked up this object.
-				const Vec4f selection_point_ws = obToWorldMatrix(*this->selected_ob) * this->selection_point_os;
-
+				const Vec4f origin = cam_controller.getPosition().toVec4fPoint();
+				const Vec4f selection_point_ws = obToWorldMatrix(*selected_ob) * selection_point_os;
 				const Vec4f selection_vec_ws = selection_point_ws - origin;
-				this->selection_vec_cs = cam_controller.vectorToCamSpace(selection_vec_ws);
+				selection_vec_cs = cam_controller.vectorToCamSpace(selection_vec_ws);
 			}
 		}
-	}
-	else if(selected_ob.nonNull() && grabbed_axis >= NUM_AXIS_ARROWS && grabbed_axis < (NUM_AXIS_ARROWS + 3)) // If we have grabbed a rotation arc and are moving it:
-	{
-		const Vec4f arc_centre = ob_origin_at_grab;// this->selected_ob->opengl_engine_ob->ob_to_world_matrix.getColumn(3);
-
-		const int rot_axis = grabbed_axis - NUM_AXIS_ARROWS;
-		const Vec4f basis_a = basis_vectors[rot_axis*2];
-		const Vec4f basis_b = basis_vectors[rot_axis*2 + 1];
-
-		// Intersect ray from current mouse position with plane formed by rotation basis vectors
-		const Vec4f origin = cam_controller.getPosition().toVec4fPoint();
-		const Vec4f dir = getDirForPixelTrace(mouse_event.cursor_pos.x, mouse_event.cursor_pos.y);
-
-		Planef plane(arc_centre, crossProduct(basis_a, basis_b));
-
-		const float t = plane.rayIntersect(origin, dir);
-		const Vec4f plane_p = origin + dir * t;
-
-		//opengl_engine->addObject(opengl_engine->makeAABBObject(plane_p, plane_p + Vec4f(0.05f, 0.05f, 0.05f, 0), Colour4f(1, 0, 1, 1)));
-
-		const float angle = safeATan2(dot(plane_p - arc_centre, basis_b), dot(plane_p - arc_centre, basis_a));
-
-		const float delta = angle - grabbed_angle;
-
-		//Matrix4f tentative_new_to_world = this->selected_ob->opengl_engine_ob->ob_to_world_matrix;
-		//tentative_new_to_world = Matrix4f::rotationMatrix(crossProduct(basis_a, basis_b), delta) * tentative_new_to_world;
-		//tryToMoveObject(tentative_new_to_world);
-
-		rotateObject(this->selected_ob, crossProduct(basis_a, basis_b), delta);
-
-		grabbed_angle = angle;
-	}
-	else
-	{
-		// Set mouseover colour if we have moused over a grabbable axis.
-		if(axis_and_rot_obs_enabled)
+		else
 		{
-			// Don't try and grab an axis etc.. when we are clicking on a voxel group to add/remove voxels.
-			//bool mouse_trace_hit_selected_ob = false;
-			//if(areEditingVoxels())
-			//{
-			//	RayTraceResult results;
-			//	this->physics_world->traceRay(cam_controller.getPosition().toVec4fPoint(), getDirForPixelTrace(e->pos().x(), e->pos().y()), /*max_t=*/1.0e10f, results);
-			//
-			//	mouse_trace_hit_selected_ob = results.hit_object && results.hit_object->userdata && results.hit_object->userdata_type == 0 && // If we hit an object,
-			//		static_cast<WorldObject*>(results.hit_object->userdata) == this->selected_ob.ptr(); // and it was the selected ob
-			//}
-
-			// Set grab controls to default colours
-			for(int i=0; i<NUM_AXIS_ARROWS; ++i)
-			{
-				axis_arrow_objects[i]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i % 3]);
-				opengl_engine->objectMaterialsUpdated(*axis_arrow_objects[i]);
-			}
-
-			for(int i=0; i<3; ++i)
-			{
-				rot_handle_arc_objects[i]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_default_cols[i]);
-				opengl_engine->objectMaterialsUpdated(*rot_handle_arc_objects[i]);
-			}
-
-			//if(!mouse_trace_hit_selected_ob)
-			{
-				Vec4f dummy_grabbed_point_ws;
-				const int axis = mouseOverAxisArrowOrRotArc(Vec2f((float)mouse_event.cursor_pos.x, (float)mouse_event.cursor_pos.y), dummy_grabbed_point_ws);
-		
-				if(axis >= 0 && axis < NUM_AXIS_ARROWS)
-				{
-					axis_arrow_objects[axis]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_mouseover_cols[axis % 3]);
-					opengl_engine->objectMaterialsUpdated(*axis_arrow_objects[axis]);
-				}
-
-				if(axis >= NUM_AXIS_ARROWS && axis < NUM_AXIS_ARROWS + 3)
-				{
-					const int grabbed_rot_axis = axis - NUM_AXIS_ARROWS;
-					rot_handle_arc_objects[grabbed_rot_axis]->materials[0].albedo_linear_rgb = toLinearSRGB(axis_arrows_mouseover_cols[grabbed_rot_axis]);
-					opengl_engine->objectMaterialsUpdated(*rot_handle_arc_objects[grabbed_rot_axis]);
-				}
-			}
+			if(transform_gizmo)
+				transform_gizmo->updateMouseoverHighlight(Vec2f((float)mouse_event.cursor_pos.x, (float)mouse_event.cursor_pos.y));
 		}
 	}
 }
@@ -15024,15 +14479,7 @@ void GUIClient::selectObject(const WorldObjectRef& ob, int selected_mat_index)
 		opengl_engine->addObject(ob_placement_marker);
 
 		if(ui_interface->posAndRot3DControlsEnabled())
-		{
-			for(int i=0; i<NUM_AXIS_ARROWS; ++i)
-				opengl_engine->addObject(axis_arrow_objects[i]);
-
-			for(int i=0; i<3; ++i)
-				opengl_engine->addObject(rot_handle_arc_objects[i]);
-
-			axis_and_rot_obs_enabled = true;
-		}
+			transform_gizmo = new TransformGizmo(opengl_engine.ptr(), this->selected_ob->pos.toVec4fPoint());
 	}
 
 	if(isObjectDecal(ob))
@@ -15092,13 +14539,7 @@ void GUIClient::deselectObject()
 		opengl_engine->removeObject(this->ob_placement_beam);
 		opengl_engine->removeObject(this->ob_placement_marker);
 
-		for(int i=0; i<NUM_AXIS_ARROWS; ++i)
-			opengl_engine->removeObject(this->axis_arrow_objects[i]);
-
-		for(int i=0; i<3; ++i)
-			opengl_engine->removeObject(this->rot_handle_arc_objects[i]);
-
-		axis_and_rot_obs_enabled = false;
+		transform_gizmo = nullptr;
 
 		// Remove any edge markers
 		while(ob_denied_move_markers.size() > 0)
@@ -15139,8 +14580,6 @@ void GUIClient::deselectObject()
 		ui_interface->setObjectEditorEnabled(false);
 
 		this->selected_ob = NULL;
-
-		grabbed_axis = -1;
 
 		this->shown_object_modification_error_msg = false;
 
@@ -15881,14 +15320,10 @@ void GUIClient::stopGesture()
 	const double cur_time = Clock::getTimeSinceInit(); // Used for animation, interpolation etc..
 
 	{
-		Lock lock(this->world_state->mutex);
-
-		for(auto it = this->world_state->avatars.begin(); it != this->world_state->avatars.end(); ++it)
-		{
-			Avatar* av = it->second.getPointer();
-			if(av->isOurAvatar())
-				av->graphics.stopGesture(cur_time/*, gesture_name*/);
-		}
+		WorldStateLock lock(this->world_state->mutex);
+		Avatar* av = getOurAvatar(lock);
+		if(av)
+			av->graphics.stopGesture(cur_time/*, gesture_name*/);
 	}
 
 	// Send AvatarStopGesture message
@@ -15921,23 +15356,19 @@ void GUIClient::performGestureOnOurAvatar(const std::string& gesture_name, const
 
 	if(resource_manager->isFileForURLPresent(anim_resource_URL))
 	{
-		Lock lock(this->world_state->mutex);
-
-		for(auto it = this->world_state->avatars.begin(); it != this->world_state->avatars.end(); ++it)
+		WorldStateLock lock(this->world_state->mutex);
+		Avatar* av = getOurAvatar(lock);
+		if(av)
 		{
-			Avatar* av = it->second.getPointer();
-			if(av->isOurAvatar())
-			{
-				// Sync playback.
-				// Consider at some time t, 10 seconds from now:
-				// t = cur_time + 10
-				// and global_start_time = 100, cur_global_time = 105 (e.g. anim was started 5 secs ago by another user)
-				// then time_in_anim = t + use_time_offset = (cur_time + 10) + (-cur_time + (cur_global_time - global_start_time))
-				// = 10 + (105 - 100) = 10 + 5 = 15
-				const double time_offset = cur_global_time - global_start_time;
+			// Sync playback.
+			// Consider at some time t, 10 seconds from now:
+			// t = cur_time + 10
+			// and global_start_time = 100, cur_global_time = 105 (e.g. anim was started 5 secs ago by another user)
+			// then time_in_anim = t + use_time_offset = (cur_time + 10) + (-cur_time + (cur_global_time - global_start_time))
+			// = 10 + (105 - 100) = 10 + 5 = 15
+			const double time_offset = cur_global_time - global_start_time;
 
-				av->performGesture(cur_time, gesture_name, anim_resource_URL, gesture_flags, global_start_time, time_offset, animation_manager, *resource_manager);
-			}
+			av->performGesture(cur_time, gesture_name, anim_resource_URL, gesture_flags, global_start_time, time_offset, animation_manager, *resource_manager);
 		}
 	}
 	else
@@ -15953,13 +15384,10 @@ void GUIClient::performGestureOnOurAvatar(const std::string& gesture_name, const
 
 		// Set a variable on the avatar so we know to start playing the gesture when the animation file is downloaded.
 		{
-			Lock lock(this->world_state->mutex);
-			for(auto it = this->world_state->avatars.begin(); it != this->world_state->avatars.end(); ++it)
-			{
-				Avatar* av = it->second.getPointer();
-				if(av->isOurAvatar())
-					av->setPendingGesture(gesture_name, anim_resource_URL, gesture_flags, cur_global_time);
-			}
+			WorldStateLock lock(this->world_state->mutex);
+			Avatar* av = getOurAvatar(lock);
+			if(av)
+				av->setPendingGesture(gesture_name, anim_resource_URL, gesture_flags, cur_global_time);
 		}
 	}
 
@@ -16268,6 +15696,19 @@ void GUIClient::useActionTriggered(bool use_mouse_cursor)
 			{
 				WorldObject* ob = static_cast<WorldObject*>(results.hit_object->userdata);
 
+				// Handle gear item pickup
+				if(ob->object_type == WorldObject::ObjectType_GearItem)
+				{
+					MessageUtils::initPacket(scratch_packet, Protocol::PickUpGearItem);
+					writeToStream(ob->uid, scratch_packet);
+					enqueueMessageToSend(*this->client_thread, scratch_packet);
+
+					// Get updated gear list
+					MessageUtils::initPacket(scratch_packet, Protocol::QueryUserGear);
+					enqueueMessageToSend(*client_thread, scratch_packet);
+					return;
+				}
+
 				// Handle seat interaction
 				if(ob->object_type == WorldObject::ObjectType_Seat)
 				{
@@ -16522,23 +15963,100 @@ void GUIClient::gestureSettingsChanged(const GestureSettings& new_gesture_settin
 	gesture_ui.setCurrentGestureSettings(new_gesture_settings);
 }
 
-
-static Avatar buildOurCurrentAvatar(const GUIClient& gc)
+void GUIClient::openGearInventory()
 {
-	const Vec3d cam_angles = gc.cam_controller.getAvatarAngles();
-	Avatar av;
-	av.uid             = gc.client_avatar_uid;
-	av.pos             = Vec3d(gc.cam_controller.getFirstPersonPosition());
-	av.rotation        = Vec3f(0, (float)cam_angles.y, (float)cam_angles.x);
-	av.name            = gc.logged_in_user_name;
-	av.avatar_settings = gc.logged_in_avatar_settings;
-	av.equipped_gear   = gc.logged_in_equipped_gear;
-	return av;
+	if(gear_inventory_ui)
+	{
+		gear_inventory_ui = nullptr; // Close
+	}
+	else
+	{
+		gear_inventory_ui = new GearInventoryUI(this, gl_ui);
+
+		// If our avatar model is already loaded, pass it to the inventory for preview.
+		if(world_state)
+		{
+			WorldStateLock lock(world_state->mutex);
+			Avatar* av = getOurAvatar(lock);
+			if(av && av->graphics.skinned_gl_ob)
+				gear_inventory_ui->setAvatarGLObject(av->graphics, av->graphics.skinned_gl_ob, av->avatar_settings.pre_ob_to_world_matrix);
+		}
+
+		// Populate equipped panel
+		gear_inventory_ui->setEquippedGear(this->logged_in_equipped_gear);
+
+		// Ask the server for the full owned-gear list (response populates the All Gear panel).
+		conPrint("Gear inventory opened, sending QueryUserGear.");
+		MessageUtils::initPacket(scratch_packet, Protocol::QueryUserGear);
+		enqueueMessageToSend(*client_thread, scratch_packet);
+	}
+}
+
+
+void GUIClient::convertSelectedObjectToGearItem()
+{
+	if(selected_ob)
+	{
+		URLString use_model_url = selected_ob->model_url;
+
+		// If selected ob is a voxels object, convert the voxels to a .subvox file and add the .subvox file to resource system first.
+		if(selected_ob->getCompressedVoxels())
+		{
+			SubVoxVoxelGroup group;
+			selected_ob->decompressVoxels();
+			const VoxelGroup& src_group = selected_ob->getDecompressedVoxelGroup();
+			group.voxels.resize(src_group.voxels.size());
+			for(size_t i=0; i<src_group.voxels.size(); ++i)
+				group.voxels[i] = SubVoxVoxel(src_group.voxels[i].pos, src_group.voxels[i].mat_index);
+
+
+			const std::string subvox_path = PlatformUtils::getTempDirPath() + "/temp.subvox";
+
+			FormatDecoderSubVox::writeSubVoxFile(subvox_path, group);
+
+			// Compute hash over model
+			const uint64 model_hash = FileChecksum::fileChecksum(subvox_path);
+
+			const std::string original_filename = "voxels";//FileUtils::getFilename(local_model_path); // Use the original filename, not 'temp.igmesh'.
+			const URLString subvox_URL = ResourceManager::URLForNameAndExtensionAndHash(original_filename, "subvox", model_hash); // ResourceManager::URLForPathAndHash(igmesh_disk_path, model_hash);
+
+			// Copy model to local resources dir.  UploadResourceThread will read from here.
+			resource_manager->copyLocalFileToResourceDir(subvox_path, subvox_URL);
+
+			use_model_url = subvox_URL;
+		}
+
+
+
+		GearItemRef item = new GearItem();
+
+		// Id will be set by server.
+		item->creator_id = logged_in_user_id;
+		item->owner_id = logged_in_user_id;
+		item->model_url = use_model_url;
+		item->materials = selected_ob->materials;
+		item->bone_name = "LeftHand";
+		item->translation = Vec3f(0.f);
+		item->axis = Vec3f(0,0,1);
+		item->angle = 0.f;
+		item->scale = selected_ob->scale;
+		item->name = "New gear item";
+		item->aabb_os_min = Vec3f(selected_ob->getAABBOS().min_);
+		item->aabb_os_max = Vec3f(selected_ob->getAABBOS().max_);
+
+		MessageUtils::initPacket(scratch_packet, Protocol::CreateGearItem);
+		item->writeToStream(scratch_packet);
+		enqueueMessageToSend(*client_thread, scratch_packet);
+	}
+	else
+	{
+		showErrorNotification("Please select an object first");
+	}
 }
 
 
 // The user clicked on an unequipped gear item, so equip it.
-void GUIClient::gearItemClicked(const GearItemRef& item)
+void GUIClient::equipGearItem(const GearItemRef& item)
 {
 	conPrint("Equipping gear item: id=" + item->id.toString() + " name='" + item->name + "'");
 
@@ -16553,29 +16071,28 @@ void GUIClient::gearItemClicked(const GearItemRef& item)
 	// Update avatar in world state and trigger graphics reload
 	{
 		WorldStateLock lock(world_state->mutex);
-		auto it = world_state->avatars.find(client_avatar_uid);
-		if(it != world_state->avatars.end())
+		Avatar* avatar = getOurAvatar(lock);
+		if(avatar)
 		{
-			Avatar* av = it->second.ptr();
-			av->equipped_gear.items.push_back(item);
-			av->graphics.loaded_lod_level = -1; // Force loadModelForAvatar to re-run and load the new gear model
-			loadModelForAvatar(av);
+			avatar->equipped_gear.items.push_back(item);
+			avatar->graphics.loaded_lod_level = -1; // Force loadModelForAvatar to re-run and load the new gear model
+			loadModelForAvatar(avatar);
+
+			// Notify server
+			MessageUtils::initPacket(scratch_packet, Protocol::AvatarFullUpdate);
+			writeAvatarToNetworkStream(*avatar, scratch_packet);
+			enqueueMessageToSend(*client_thread, scratch_packet);
 		}
 	}
-
-	// Notify server
-	const Avatar av = buildOurCurrentAvatar(*this);
-	MessageUtils::initPacket(scratch_packet, Protocol::AvatarFullUpdate);
-	writeAvatarToNetworkStream(av, scratch_packet);
-	enqueueMessageToSend(*client_thread, scratch_packet);
 
 	// Refresh inventory UI
 	if(gear_inventory_ui)
 		gear_inventory_ui->setEquippedGear(logged_in_equipped_gear);
 }
 
+
 // The user clicked on an equipped gear item, so unequip it.
-void GUIClient::equippedGearItemClicked(const GearItemRef& item)
+void GUIClient::unequipGearItem(const GearItemRef& item)
 {
 	conPrint("Unequipping gear item: id=" + item->id.toString() + " name='" + item->name + "'");
 
@@ -16585,10 +16102,9 @@ void GUIClient::equippedGearItemClicked(const GearItemRef& item)
 	// Remove from avatar in world state and clean up GL object
 	{
 		WorldStateLock lock(world_state->mutex);
-		auto it = world_state->avatars.find(client_avatar_uid);
-		if(it != world_state->avatars.end())
+		Avatar* av = getOurAvatar(lock);
+		if(av)
 		{
-			Avatar* av = it->second.ptr();
 			for(size_t i = 0; i < av->equipped_gear.items.size(); ++i)
 			{
 				if(av->equipped_gear.items[i]->id == item->id)
@@ -16607,18 +16123,54 @@ void GUIClient::equippedGearItemClicked(const GearItemRef& item)
 
 			av->graphics.loaded_lod_level = -1; // Force loadModelForAvatar to re-run and load the new gear model
 			loadModelForAvatar(av);
+
+			// Notify server
+			MessageUtils::initPacket(scratch_packet, Protocol::AvatarFullUpdate);
+			writeAvatarToNetworkStream(*av, scratch_packet);
+			enqueueMessageToSend(*client_thread, scratch_packet);
 		}
 	}
-
-	// Notify server
-	const Avatar av = buildOurCurrentAvatar(*this);
-	MessageUtils::initPacket(scratch_packet, Protocol::AvatarFullUpdate);
-	writeAvatarToNetworkStream(av, scratch_packet);
-	enqueueMessageToSend(*client_thread, scratch_packet);
 
 	// Refresh inventory UI
 	if(gear_inventory_ui)
 		gear_inventory_ui->setEquippedGear(logged_in_equipped_gear);
+}
+
+
+void GUIClient::dropGearItem(const GearItemRef& item)
+{
+	// If currently equipped, unequip first (mirrors equippedGearItemClicked so avatar state stays consistent).
+	bool was_equipped = false;
+	for(const GearItemRef& g : logged_in_equipped_gear.items)
+		if(g->id == item->id) { was_equipped = true; break; }
+
+	if(was_equipped)
+		unequipGearItem(item);
+
+	// Drop in front of the camera so the item can fall to the ground under gravity.
+	const Vec3d drop_pos = cam_controller.getFirstPersonPosition() + cam_controller.getForwardsVec() * 1.0;
+
+	MessageUtils::initPacket(scratch_packet, Protocol::DropGearItem);
+	writeToStream(item->id, scratch_packet);
+	writeToStream<double>(drop_pos, scratch_packet);
+	enqueueMessageToSend(*client_thread, scratch_packet);
+
+	// Get updated gear list
+	MessageUtils::initPacket(scratch_packet, Protocol::QueryUserGear);
+	enqueueMessageToSend(*client_thread, scratch_packet);
+}
+
+
+void GUIClient::tryCloneGearItem(const GearItemRef& item)
+{
+	// Send CloneGearItemInInventory message to server
+	MessageUtils::initPacket(scratch_packet, Protocol::CloneGearItemInInventory);
+	writeToStream(item->id, scratch_packet);
+	enqueueMessageToSend(*client_thread, scratch_packet);
+
+	// Get updated gear list
+	MessageUtils::initPacket(scratch_packet, Protocol::QueryUserGear);
+	enqueueMessageToSend(*client_thread, scratch_packet);
 }
 
 
@@ -16689,9 +16241,9 @@ class MySSAODebuggingDepthQuerier : public SSAODebugging::DepthQuerier
 public:
 	virtual float depthForPosSS(const Vec2f& pos_ss) // returns positive depth
 	{
-		const float sensor_width = ::sensorWidth();
-		const float sensor_height = sensor_width / gui_client->opengl_engine->getViewPortAspectRatio();//ui->glWidget->viewport_aspect_ratio;
-		const float lens_sensor_dist = ::lensSensorDist();
+		const float sensor_width     = gui_client->opengl_engine->getCurrentScene()->use_sensor_width;
+		const float sensor_height    = gui_client->opengl_engine->getCurrentScene()->use_sensor_height;
+		const float lens_sensor_dist = gui_client->opengl_engine->getCurrentScene()->lens_sensor_dist;
 
 		const Vec4f forwards = gui_client->cam_controller.getForwardsVec().toVec4fVector();
 		const Vec4f right = gui_client->cam_controller.getRightVec().toVec4fVector();
@@ -16716,9 +16268,9 @@ public:
 	// Return normal in camera space
 	virtual Vec3f normalCSForPosSS(const Vec2f& pos_ss)
 	{
-		const float sensor_width = ::sensorWidth();
-		const float sensor_height = sensor_width / gui_client->opengl_engine->getViewPortAspectRatio();//ui->glWidget->viewport_aspect_ratio;
-		const float lens_sensor_dist = ::lensSensorDist();
+		const float sensor_width     = gui_client->opengl_engine->getCurrentScene()->use_sensor_width;
+		const float sensor_height    = gui_client->opengl_engine->getCurrentScene()->use_sensor_height;
+		const float lens_sensor_dist = gui_client->opengl_engine->getCurrentScene()->lens_sensor_dist;
 
 		const Vec4f forwards = gui_client->cam_controller.getForwardsVec().toVec4fVector();
 		const Vec4f right = gui_client->cam_controller.getRightVec().toVec4fVector();
@@ -16748,6 +16300,13 @@ void GUIClient::keyPressed(KeyEvent& e)
 		gl_ui->handleKeyPressedEvent(e);
 	if(e.accepted)
 		return;
+
+	if(gear_inventory_ui)
+	{
+		gear_inventory_ui->keyPressed(e);
+		if(e.accepted)
+			return;
+	}
 
 	// Update our key-state variables, jump if space was pressed.
 	{
@@ -16991,35 +16550,7 @@ void GUIClient::keyPressed(KeyEvent& e)
 	}
 	else if(e.key == Key::Key_I)
 	{
-		if(gear_inventory_ui)
-		{
-			gear_inventory_ui = nullptr; // Close
-		}
-		else
-		{
-			gear_inventory_ui = new GearInventoryUI(this, gl_ui);
-
-			// If our avatar model is already loaded, pass it to the inventory for preview.
-			if(world_state)
-			{
-				Lock lock(world_state->mutex);
-				auto it = world_state->avatars.find(client_avatar_uid);
-				if(it != world_state->avatars.end())
-				{
-					Avatar* av = it->second.ptr();
-					if(av->graphics.skinned_gl_ob)
-						gear_inventory_ui->setAvatarGLObject(av->graphics, av->graphics.skinned_gl_ob, av->avatar_settings.pre_ob_to_world_matrix);
-				}
-			}
-
-			// Populate equipped panel
-			gear_inventory_ui->setEquippedGear(this->logged_in_equipped_gear);
-
-			// Ask the server for the full owned-gear list (response populates the All Gear panel).
-			conPrint("Gear inventory opened, sending QueryUserGear.");
-			MessageUtils::initPacket(scratch_packet, Protocol::QueryUserGear);
-			enqueueMessageToSend(*client_thread, scratch_packet);
-		}
+		openGearInventory();
 	}
 	if(this->selected_ob.nonNull())
 	{

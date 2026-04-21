@@ -8,6 +8,7 @@ Copyright Glare Technologies Limited 2026 -
 
 #include <opengl/ui/GLUI.h>
 #include <opengl/ui/GLUIWidget.h>
+#include <functional>
 
 
 class FrameBuffer;
@@ -29,12 +30,11 @@ public:
 
 	virtual void setPos(const Vec2f& botleft) override;
 
-	virtual void setPosAndDims(const Vec2f& botleft, const Vec2f& dims) override;
+	void setPosAndDims(const Vec2f& botleft, const Vec2f& dims);
 
 	virtual void setClipRegion(const Rect2f& clip_rect) override;
 
-	// Called when e.g. the viewport changes size
-	virtual void updateGLTransform() override;
+	virtual void viewportResized() override;
 
 	virtual void setVisible(bool visible) override;
 
@@ -50,6 +50,18 @@ public:
 
 	// Scene should have been set to avatar_preview_scene already.  Caller should restore scene and target FBO after calling.
 	void renderAvatarPreview();
+
+	// Called from inside renderAvatarPreview(), after setPerspectiveCameraTransform but before draw().
+	// Use to update objects that depend on the preview camera (e.g. TransformGizmo::update()).
+	std::function<void()> pre_draw_func;
+
+	// Optional hooks called at the start of each mouse handler.
+	// Return true from press_interceptor / move_interceptor to consume the event
+	// (prevents the widget's own drag/rotate handling).
+	std::function<bool(MouseEvent&)> press_interceptor;
+	std::function<bool(MouseEvent&)> move_interceptor;
+	std::function<void(MouseEvent&)> release_interceptor;
+
 private:
 	void updateOverlayTransform();
 

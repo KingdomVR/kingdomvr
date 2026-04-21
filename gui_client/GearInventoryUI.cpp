@@ -19,7 +19,7 @@ Copyright Glare Technologies Limited 2026 -
 #include <maths/GeometrySampling.h>
 
 
-static const float THUMBNAIL_SIZE_PX = 100.f;
+static const float THUMBNAIL_SIZE_PX = 80.f;
 static const int   GEAR_GRID_COLS    = 4;
 static const int   GEAR_GRID_ROWS    = 6;
 	
@@ -33,6 +33,7 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 	need_rebuild_equipped = false;
 	need_rebuild_all_gear = false;
 	close_soon = false;
+	avatar_pre_ob_to_world_matrix = Matrix4f::identity();
 
 	// Outer 3-column grid: [avatar preview | equipped | all gear], each column has a header at row 0 and content at row 1.
 	{
@@ -43,7 +44,6 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 		args.exterior_cell_x_padding_px = INTERIOR_GRID_PADDING_PX * 8;
 		args.exterior_cell_y_padding_px = INTERIOR_GRID_PADDING_PX * 8;
 		outer_grid = new GLUIGridContainer(*gl_ui, args);
-		outer_grid->setPosAndDims(Vec2f(0.f), Vec2f(0.01f));
 		outer_grid->debug_name = "GearInventoryUI outer grid";
 	}
 
@@ -96,10 +96,13 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 		}
 	}
 
+	const int SECTION_HEADER_TEXT_FONT_SIZE_PX = 16;
+
 	// Column 0: avatar header + avatar preview widget
 	{
 		GLUITextView::CreateArgs args;
 		args.background_alpha = 0;
+		args.font_size_px = SECTION_HEADER_TEXT_FONT_SIZE_PX;
 		GLUITextViewRef avatar_header_text = new GLUITextView(*gl_ui, "Preview", Vec2f(0.f), args);
 		outer_grid->setCellWidget(/*x=*/0, /*y=*/0, avatar_header_text);
 	}
@@ -114,6 +117,7 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 	{
 		GLUITextView::CreateArgs args;
 		args.background_alpha = 0;
+		args.font_size_px = SECTION_HEADER_TEXT_FONT_SIZE_PX;
 		GLUITextViewRef equipped_header_text = new GLUITextView(*gl_ui, "Equipped Gear", Vec2f(0.f), args);
 		outer_grid->setCellWidget(/*x=*/1, /*y=*/0, equipped_header_text);
 	}
@@ -125,7 +129,6 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 		args.interior_cell_x_padding_px = INTERIOR_GRID_PADDING_PX;
 		args.interior_cell_y_padding_px = INTERIOR_GRID_PADDING_PX;
 		equipped_grid = new GLUIGridContainer(*gl_ui, args);
-		equipped_grid->setPosAndDims(Vec2f(0.f), Vec2f(0.01f));
 		equipped_grid->debug_name = "GearInventoryUI equipped_grid";
 		outer_grid->setCellWidget(/*x=*/1, /*y=*/1, equipped_grid);
 	}
@@ -134,6 +137,7 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 	{
 		GLUITextView::CreateArgs args;
 		args.background_alpha = 0;
+		args.font_size_px = SECTION_HEADER_TEXT_FONT_SIZE_PX;
 		GLUITextViewRef all_gear_header_text = new GLUITextView(*gl_ui, "All Gear", Vec2f(0.f), args);
 		outer_grid->setCellWidget(/*x=*/2, /*y=*/0, all_gear_header_text);
 	}
@@ -145,7 +149,6 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 		args.interior_cell_x_padding_px = INTERIOR_GRID_PADDING_PX;
 		args.interior_cell_y_padding_px = INTERIOR_GRID_PADDING_PX;
 		all_gear_grid = new GLUIGridContainer(*gl_ui, args);
-		all_gear_grid->setPosAndDims(Vec2f(0.f), Vec2f(0.01f));
 		all_gear_grid->debug_name = "GearInventoryUI all_gear_grid";
 		outer_grid->setCellWidget(/*x=*/2, /*y=*/1, all_gear_grid);
 	}
@@ -171,6 +174,8 @@ GearInventoryUI::GearInventoryUI(GUIClient* gui_client_, GLUIRef gl_ui_)
 
 GearInventoryUI::~GearInventoryUI()
 {
+	gear_editor_ui = nullptr;
+
 	// Clean up the avatar preview scene and its objects
 	if(avatar_preview_scene)
 	{
@@ -210,7 +215,7 @@ void GearInventoryUI::recreateAvatarPreviewFBO()
 	{
 		avatar_preview_widget->recreateFBO(avatar_preview_w, avatar_preview_h);
 
-		avatar_preview_widget->setFixedDimsPx(Vec2f(w_dev_ind_px, h_dev_ind_px), *gl_ui);
+		avatar_preview_widget->setFixedDimsPx(Vec2f(w_dev_ind_px, h_dev_ind_px));
 	}
 }
 
@@ -254,7 +259,7 @@ void GearInventoryUI::rebuildEquippedGrid()
 		const GearItemRef& item = equipped_gear.items[i];
 
 		GLUIButton::CreateArgs args;
-		args.tooltip = "Unequip " + item->name;
+		args.tooltip = "Click to unequip " + item->name + ". Press [E] to edit item, [D] to drop into world, [C] to clone.";
 		args.sizing_type_x = GLUIWidget::SizingType_FixedSizePx;
 		args.sizing_type_y = GLUIWidget::SizingType_FixedSizePx;
 		args.fixed_size = Vec2f(THUMBNAIL_SIZE_PX);
@@ -298,7 +303,7 @@ void GearInventoryUI::rebuildAllGearGrid()
 		const GearItemRef& item = all_gear.items[i];
 
 		GLUIButton::CreateArgs args;
-		args.tooltip = "Equip " + item->name;
+		args.tooltip = "Click to equip " + item->name + ". Press [E] to edit item, [D] to drop into world, [C] to clone.";
 		args.sizing_type_x = GLUIWidget::SizingType_FixedSizePx;
 		args.sizing_type_y = GLUIWidget::SizingType_FixedSizePx;
 		args.fixed_size = Vec2f(THUMBNAIL_SIZE_PX);
@@ -340,11 +345,33 @@ void GearInventoryUI::setAllGear(const GearItems& all_gear_)
 {
 	all_gear = all_gear_;
 	need_rebuild_all_gear = true;
+
 }
 
 
 void GearInventoryUI::think()
 {
+	if(gear_editor_ui)
+	{
+		gear_editor_ui->think();
+
+		// Sync transform changes made in the editor back to our equipped_gear_graphics,
+		// so the inventory avatar preview reflects edits when the editor closes.
+		for(auto& graphics : equipped_gear_graphics)
+		{
+			if(graphics.gear_id == gear_editor_ui->equipped_gear_graphics.gear_id)
+			{
+				graphics.transform   = gear_editor_ui->equipped_gear_graphics.transform;
+				graphics.bone_node_i = gear_editor_ui->equipped_gear_graphics.bone_node_i;
+				break;
+			}
+		}
+
+		if(gear_editor_ui->close_soon)
+			gear_editor_ui = nullptr;
+	}
+
+
 	if(need_rebuild_equipped)
 	{
 		rebuildEquippedGrid();
@@ -357,7 +384,10 @@ void GearInventoryUI::think()
 		need_rebuild_all_gear = false;
 	}
 
-	renderAvatarPreview();
+
+	// If gear editor is open (which has its own avatar preview) don't update our preview.
+	if(!gear_editor_ui)
+		renderAvatarPreview();
 }
 
 
@@ -406,6 +436,8 @@ void GearInventoryUI::setAvatarGLObject(const AvatarGraphics& av_graphics, const
 {
 	if(avatar_preview_scene.isNull())
 		return;
+
+	this->avatar_pre_ob_to_world_matrix = pre_ob_to_world_matrix;
 
 	OpenGLEngine* engine = gui_client->opengl_engine.ptr();
 	OpenGLSceneRef old_scene = engine->getCurrentScene();
@@ -457,6 +489,10 @@ void GearInventoryUI::setAvatarGLObject(const AvatarGraphics& av_graphics, const
 	}
 
 	engine->setCurrentScene(old_scene);
+
+
+	if(gear_editor_ui)
+		gear_editor_ui->setAvatarGLObject(avatar_gl_ob, pre_ob_to_world_matrix, this->equipped_gear_graphics);
 }
 
 
@@ -491,6 +527,105 @@ void GearInventoryUI::viewportResized(int w, int h)
 	recreateAvatarPreviewFBO();
 
 	updateWidgetPositions();
+
+	if(gear_editor_ui)
+		gear_editor_ui->viewportResized(w, h);
+}
+
+
+void GearInventoryUI::keyPressed(KeyEvent& e)
+{
+	if(e.key == Key::Key_Escape)
+	{
+		if(gear_editor_ui)
+			gear_editor_ui->close_soon = true;
+		else
+			close_soon = true;
+		e.accepted = true;
+		return;
+	}
+
+	if(e.key == Key::Key_E)
+	{
+		const Vec2f mouse_pos = gl_ui->getLastMouseUICoords();
+
+		for(size_t i=0; i<equipped_gear_ui.size(); ++i)
+		{
+			if(equipped_gear_ui[i].thumbnail->getRect().inOpenRectangle(mouse_pos))
+			{
+				gear_editor_ui = new GearEditorUI(gui_client, gl_ui, equipped_gear_ui[i].gear_item);
+				gear_editor_ui->setAvatarGLObject(avatar_preview_gl_ob, avatar_pre_ob_to_world_matrix, equipped_gear_graphics);
+				e.accepted = true;
+				return;
+			}
+		}
+
+		for(size_t i=0; i<all_gear_ui.size(); ++i)
+		{
+			if(all_gear_ui[i].thumbnail->getRect().inOpenRectangle(mouse_pos))
+			{
+				gear_editor_ui = new GearEditorUI(gui_client, gl_ui, all_gear_ui[i].gear_item);
+				gear_editor_ui->setAvatarGLObject(avatar_preview_gl_ob, avatar_pre_ob_to_world_matrix, equipped_gear_graphics);
+				e.accepted = true;
+				return;
+			}
+		}
+
+		// If the mouse is over the inventory window (but not a thumbnail), still consume the key
+		// so the 'E' world-use action doesn't fire while the inventory is open.
+		if(window->getRect().inOpenRectangle(mouse_pos))
+			e.accepted = true;
+	}
+
+	if(e.key == Key::Key_D)
+	{
+		const Vec2f mouse_pos = gl_ui->getLastMouseUICoords();
+
+		for(size_t i=0; i<equipped_gear_ui.size(); ++i)
+		{
+			if(equipped_gear_ui[i].thumbnail->getRect().inOpenRectangle(mouse_pos))
+			{
+				gui_client->dropGearItem(equipped_gear_ui[i].gear_item);
+				e.accepted = true;
+				return;
+			}
+		}
+
+		for(size_t i=0; i<all_gear_ui.size(); ++i)
+		{
+			if(all_gear_ui[i].thumbnail->getRect().inOpenRectangle(mouse_pos))
+			{
+				gui_client->dropGearItem(all_gear_ui[i].gear_item);
+				e.accepted = true;
+				return;
+			}
+		}
+	}
+
+	if(e.key == Key::Key_C)
+	{
+		const Vec2f mouse_pos = gl_ui->getLastMouseUICoords();
+
+		for(size_t i=0; i<equipped_gear_ui.size(); ++i)
+		{
+			if(equipped_gear_ui[i].thumbnail->getRect().inOpenRectangle(mouse_pos))
+			{
+				gui_client->tryCloneGearItem(equipped_gear_ui[i].gear_item);
+				e.accepted = true;
+				return;
+			}
+		}
+
+		for(size_t i=0; i<all_gear_ui.size(); ++i)
+		{
+			if(all_gear_ui[i].thumbnail->getRect().inOpenRectangle(mouse_pos))
+			{
+				gui_client->tryCloneGearItem(all_gear_ui[i].gear_item);
+				e.accepted = true;
+				return;
+			}
+		}
+	}
 }
 
 
@@ -506,7 +641,7 @@ void GearInventoryUI::eventOccurred(GLUICallbackEvent& event)
 		{
 			if(equipped_gear_ui[i].thumbnail.ptr() == button)
 			{
-				gui_client->equippedGearItemClicked(equipped_gear_ui[i].gear_item);
+				gui_client->unequipGearItem(equipped_gear_ui[i].gear_item);
 				event.accepted = true;
 				return;
 			}
@@ -516,7 +651,7 @@ void GearInventoryUI::eventOccurred(GLUICallbackEvent& event)
 		{
 			if(all_gear_ui[i].thumbnail.ptr() == button)
 			{
-				gui_client->gearItemClicked(all_gear_ui[i].gear_item);
+				gui_client->equipGearItem(all_gear_ui[i].gear_item);
 				event.accepted = true;
 				return;
 			}
