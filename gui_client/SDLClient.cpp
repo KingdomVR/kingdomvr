@@ -898,7 +898,7 @@ static void doOneMainLoopIter()
 	}
 #endif
 
-	double canvas_drawable_pixels_per_css_pixels = (double)opengl_engine->getMainViewPortWidth() / cur_canvas_css_W;
+	double canvas_drawable_pixels_per_css_pixels = (double)opengl_engine->getViewPortWidth() / cur_canvas_css_W;
 
 	// Handle any events
 	SDL_Event e;
@@ -938,7 +938,7 @@ static void doOneMainLoopIter()
 				cur_canvas_css_H = h;
 #endif
 
-				canvas_drawable_pixels_per_css_pixels = (double)opengl_engine->getMainViewPortWidth() / cur_canvas_css_W;
+				canvas_drawable_pixels_per_css_pixels = (double)opengl_engine->getViewPortWidth() / cur_canvas_css_W;
 
 				gui_client->gl_ui->setCurrentDevicePixelRatio((float)canvas_drawable_pixels_per_css_pixels); // Use the actual computed device pixel ratio for the canvas element.
 

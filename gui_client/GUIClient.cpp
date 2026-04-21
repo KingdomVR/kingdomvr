@@ -458,7 +458,7 @@ void GUIClient::initAudioEngine()
 
 
 static void assignLoadedOpenGLTexturesToAvatarMats(Avatar* av, bool use_basis, OpenGLEngine& opengl_engine, ResourceManager& resource_manager, AnimatedTextureManager& animated_texture_manager, glare::ArenaAllocator* allocator);
-static void assignLoadedOpenGLTexturesToGearItemMats(GearItem* item, EquippedGearGraphics* equipped_gear, bool use_basis, OpenGLEngine& opengl_engine, ResourceManager& resource_manager, AnimatedTextureManager& animated_texture_manager, glare::ArenaAllocator* allocator);
+static void assignLoadedOpenGLTexturesToGearItemMats(const GearItem* item, EquippedGearGraphics* equipped_gear, bool use_basis, OpenGLEngine& opengl_engine, ResourceManager& resource_manager, AnimatedTextureManager& animated_texture_manager, glare::ArenaAllocator* allocator);
 
 
 void GUIClient::afterGLInitInitialise(double device_pixel_ratio, Reference<OpenGLEngine> opengl_engine_, 
@@ -1737,8 +1737,8 @@ void GUIClient::startDownloadingResourcesForAvatar(Avatar* avatar, int ob_lod_le
 	glare::STLArenaAllocator<DependencyURL> stl_arena_allocator(&arena_allocator);
 
 	Avatar::GetDependencyOptions options;
-	const bool use_server_optimised_mesh = this->server_has_optimised_meshes && !our_avatar;
-	const bool use_server_basis_textures = this->server_has_basis_textures && !our_avatar;
+	const bool use_server_optimised_mesh = this->server_has_optimised_meshes && !avatar->our_avatar;
+	const bool use_server_basis_textures = this->server_has_basis_textures && !avatar->our_avatar;
 	options.get_optimised_mesh = use_server_optimised_mesh;
 	options.use_basis = use_server_basis_textures;
 	options.opt_mesh_version = this->server_opt_mesh_version;
@@ -3262,7 +3262,7 @@ void GUIClient::loadModelForAvatar(Avatar* avatar)
 			bool added_opengl_ob = false;
 
 		Avatar::GetLODModelURLOptions options(/*get_optimised_mesh=*/this->server_has_optimised_meshes, this->server_opt_mesh_version);
-		if(our_avatar)
+		if(avatar->our_avatar)
 			options.get_optimised_mesh = false;
 		const URLString lod_model_url = avatar_is_default_model ? DEFAULT_AVATAR_MODEL_URL : avatar->getLODModelURLForLevel(avatar->avatar_settings.model_url, ob_model_lod_level, options);
 
