@@ -10331,7 +10331,7 @@ void GUIClient::updateVoxelEditMarkers(const MouseCursorState& mouse_cursor_stat
 			//const QPoint mouse_point = ui->glWidget->mapFromGlobal(QCursor::pos());
 			Vec2i trace_cursor_pos = mouse_cursor_state.cursor_pos;
 			if(gamepad_add_down || gamepad_delete_down)
-				trace_cursor_pos = Vec2i(opengl_engine->getMainViewPortWidth() / 2, opengl_engine->getMainViewPortHeight() / 2);
+				trace_cursor_pos = Vec2i(opengl_engine->getViewPortWidth() / 2, opengl_engine->getViewPortHeight() / 2);
 
 			const Vec4f origin = this->cam_controller.getPosition().toVec4fPoint();
 			const Vec4f dir = getDirForPixelTrace(trace_cursor_pos.x, trace_cursor_pos.y);
@@ -14113,6 +14113,7 @@ void GUIClient::updateInfoUIForMousePosition(const Vec2i& cursor_pos, const Vec2
 								opengl_engine->selectObject(ob->opengl_engine_ob);
 							}
 						}
+					}
 			}
 			else if(results.hit_object->userdata && results.hit_object->userdata_type == 3) // If we hit an avatar:
 			{
@@ -14874,7 +14875,7 @@ void GUIClient::selectObjectUnderCrosshair()
 		return;
 
 	MouseEvent mouse_event;
-	mouse_event.cursor_pos = Vec2i(opengl_engine->getMainViewPortWidth() / 2, opengl_engine->getMainViewPortHeight() / 2);
+	mouse_event.cursor_pos = Vec2i(opengl_engine->getViewPortWidth() / 2, opengl_engine->getViewPortHeight() / 2);
 	mouse_event.gl_coords = Vec2f(0.f);
 
 	doObjectSelectionTraceForMouseEvent(mouse_event);
@@ -14902,8 +14903,8 @@ void GUIClient::controllerEditSelectedVoxelAtCrosshair(bool add_voxel)
 	if(!have_edit_permissions)
 		return;
 
-	const float gl_w = (float)opengl_engine->getMainViewPortWidth();
-	const float gl_h = (float)opengl_engine->getMainViewPortHeight();
+	const float gl_w = (float)opengl_engine->getViewPortWidth();
+	const float gl_h = (float)opengl_engine->getViewPortHeight();
 	const int cx = (int)(gl_w * 0.5f);
 	const int cy = (int)(gl_h * 0.5f);
 
