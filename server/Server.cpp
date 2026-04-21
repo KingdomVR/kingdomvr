@@ -193,6 +193,8 @@ static ServerConfig parseServerConfig(const std::string& config_path)
 	config.webserver_fragments_dir				= XMLParseUtils::parseStringWithDefault(root_elem, "webserver_fragments_dir", /*default val=*/"");
 	config.webserver_public_files_dir			= XMLParseUtils::parseStringWithDefault(root_elem, "webserver_public_files_dir", /*default val=*/"");
 	config.webclient_dir						= XMLParseUtils::parseStringWithDefault(root_elem, "webclient_dir", /*default val=*/"");
+	config.webserver_http_port					= XMLParseUtils::parseIntWithDefault(root_elem, "webserver_http_port", /*default val=*/80);
+	config.webserver_https_port					= XMLParseUtils::parseIntWithDefault(root_elem, "webserver_https_port", /*default val=*/443);
 	config.tls_certificate_path					= XMLParseUtils::parseStringWithDefault(root_elem, "tls_certificate_path", /*default val=*/"");
 	config.tls_private_key_path					= XMLParseUtils::parseStringWithDefault(root_elem, "tls_private_key_path", /*default val=*/"");
 	config.allow_light_mapper_bot_full_perms	= XMLParseUtils::parseBoolWithDefault(root_elem, "allow_light_mapper_bot_full_perms", /*default val=*/false);
@@ -687,9 +689,21 @@ int main(int argc, char *argv[])
 		shared_request_handler->world_state = server.world_state.ptr();
 		shared_request_handler->dev_mode = dev_mode;
 
+		const int webserver_http_port = server_config.webserver_http_port;
+		const int webserver_https_port = server_config.webserver_https_port;
+		if(webserver_http_port < 1 || webserver_http_port > 65535)
+			throw glare::Exception("webserver_http_port must be in the range [1, 65535].");
+		if(webserver_https_port < 1 || webserver_https_port > 65535)
+			throw glare::Exception("webserver_https_port must be in the range [1, 65535].");
+		if(webserver_http_port == webserver_https_port)
+			throw glare::Exception("webserver_http_port and webserver_https_port must be different values.");
+
+		conPrint("webserver HTTP port: " + toString(webserver_http_port));
+		conPrint("webserver HTTPS port: " + toString(webserver_https_port));
+
 		ThreadManager web_thread_manager;
-		web_thread_manager.addThread(new web::WebListenerThread(80,  shared_request_handler.getPointer(), NULL));
-		web_thread_manager.addThread(new web::WebListenerThread(443, shared_request_handler.getPointer(), web_tls_configuration));
+		web_thread_manager.addThread(new web::WebListenerThread(webserver_http_port,  shared_request_handler.getPointer(), NULL));
+		web_thread_manager.addThread(new web::WebListenerThread(webserver_https_port, shared_request_handler.getPointer(), web_tls_configuration));
 
 
 		web_thread_manager.addThread(new WebDataFileWatcherThread(web_data_store));

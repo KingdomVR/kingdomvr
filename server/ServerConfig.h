@@ -12,11 +12,14 @@ Copyright Glare Technologies Limited 2026 -
 class ServerConfig
 {
 public:
-	ServerConfig() : allow_light_mapper_bot_full_perms(false), update_parcel_sales(false), do_lua_http_request_rate_limiting(true), enable_LOD_chunking(true), enable_registration(true) {}
+	ServerConfig() : webserver_http_port(80), webserver_https_port(443), allow_light_mapper_bot_full_perms(false), update_parcel_sales(false), do_lua_http_request_rate_limiting(true), enable_LOD_chunking(true), enable_registration(true) {}
 	
 	std::string webserver_fragments_dir; // empty string = use default.
 	std::string webserver_public_files_dir; // empty string = use default.
 	std::string webclient_dir; // empty string = use default.
+
+	int webserver_http_port;
+	int webserver_https_port;
 
 	std::string tls_certificate_path; // empty string = use default.
 	std::string tls_private_key_path; // empty string = use default.

@@ -10,4 +10,8 @@
 	
 	<!-- Location where webclient files are found -->
 	<!--<webclient_dir></webclient_dir>-->
+
+	<!-- HTTP and HTTPS listen ports for the webserver (defaults are 80 and 443) -->
+	<!--<webserver_http_port>80</webserver_http_port>-->
+	<!--<webserver_https_port>443</webserver_https_port>-->
 </config>

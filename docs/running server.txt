@@ -23,10 +23,13 @@ If a file is present at server_state_dir + "/substrata_server_config.xml", then 
 <config>
 	<webserver_public_files_dir>Q:\substrata\trunk\webserver_public_files</webserver_public_files_dir>
 	<webclient_dir>Q:\substrata\trunk\webclient</webclient_dir>
+	<webserver_http_port>80</webserver_http_port>
+	<webserver_https_port>443</webserver_https_port>
 </config>
 
 If webclient_dir is present, then it overrides the default value of the webclient files dir specified below.
 Likewise for webserver_public_files_dir.
+webserver_http_port and webserver_https_port are optional and default to 80 and 443.
 
 
 Webserver public files dir
